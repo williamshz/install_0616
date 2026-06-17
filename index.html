@@ -1,0 +1,2495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CANN 安装 — IDE 命令行向导</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-titlebar: #323233;
+      --bg-activity: #333333;
+      --bg-sidebar: #252526;
+      --bg-editor: #1e1e1e;
+      --bg-tabs: #2d2d2d;
+      --bg-tab-active: #1e1e1e;
+      --bg-panel: #1e1e1e;
+      --bg-statusbar: #007acc;
+      --border: #3c3c3c;
+      --text: #cccccc;
+      --text-dim: #858585;
+      --accent: #0078d4;
+      --accent-hover: #1a86d9;
+      --success: #4ec9b0;
+      --warning: #dcdcaa;
+      --error: #f48771;
+      --term-prompt: #4ec9b0;
+      --term-path: #569cd6;
+      --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+      --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      --activity-w: 48px;
+      --sidebar-w: 280px;
+      --panel-h: 220px;
+      --panel-h-expanded: 340px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg-editor);
+      scrollbar-color: #424242 transparent;
+      scrollbar-width: thin;
+    }
+
+    /* 深色滚动条 — 去除默认白色轨道背景 */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #424242 transparent;
+    }
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+      background: transparent;
+    }
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: #424242;
+      border-radius: 5px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: #4f4f4f;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    *::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    .ide { display: flex; flex-direction: column; height: 100vh; }
+
+    /* Titlebar */
+    .titlebar {
+      height: 36px;
+      background: var(--bg-titlebar);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      flex-shrink: 0;
+    }
+    .titlebar-dots { display: flex; gap: 8px; width: 72px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #febc2e; }
+    .dot.green { background: #28c840; }
+    .titlebar-center {
+      flex: 1;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .titlebar-center strong { color: var(--text); font-weight: 500; }
+    .titlebar-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 400px;
+      justify-content: flex-end;
+    }
+    .titlebar-btn {
+      padding: 4px 12px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s;
+    }
+    .titlebar-btn:hover {
+      background: rgba(255,255,255,.1);
+      border-color: var(--accent);
+    }
+    .titlebar-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .titlebar-btn.primary:hover {
+      background: var(--accent-hover);
+    }
+    .titlebar-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    /* Workbench */
+    .workbench { display: flex; flex: 1; overflow: hidden; }
+
+    /* Activity bar */
+    .activitybar {
+      width: var(--activity-w);
+      background: var(--bg-activity);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 0;
+      flex-shrink: 0;
+    }
+    .act-btn {
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: var(--text-dim);
+      cursor: pointer; border-left: 2px solid transparent;
+      margin-bottom: 2px;
+    }
+    .act-btn:hover { color: var(--text); }
+    .act-btn.active { color: #fff; border-left-color: #fff; }
+    .act-btn svg { width: 22px; height: 22px; }
+    .act-spacer { flex: 1; }
+
+    /* Sidebar */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow-y: auto;
+      transition: transform .35s ease, opacity .35s ease;
+    }
+    .sidebar.collapsed {
+      transform: translateX(-100%);
+      opacity: 0;
+      pointer-events: none;
+      position: absolute;
+      z-index: 100;
+    }
+    .sidebar-header {
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-section h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .field select, .field input {
+      width: 100%; padding: 6px 8px;
+      background: #3c3c3c; border: 1px solid var(--border);
+      border-radius: 4px; color: var(--text); font-size: 12px; outline: none;
+      font-family: inherit;
+    }
+    .field select:focus, .field input:focus { border-color: var(--accent); }
+    .field-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+    .check-field {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; margin-bottom: 8px; cursor: pointer;
+    }
+    .check-field input { accent-color: var(--accent); }
+
+    .btn {
+      padding: 7px 12px; font-size: 12px; border: none;
+      border-radius: 4px; cursor: pointer; font-family: inherit;
+      transition: background .15s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: #3c3c3c; color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: #4a4a4a; }
+    .btn-block { width: 100%; margin-top: 6px; }
+    .btn-success { background: #1a6b3c; color: #fff; }
+    .btn-success:hover { background: #228b4a; }
+    .btn:disabled { opacity: .55; cursor: not-allowed; pointer-events: none; }
+    .btn.running { position: relative; }
+    .btn.running::after {
+      content: ''; display: inline-block; width: 10px; height: 10px;
+      margin-left: 6px; border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .7s linear infinite; vertical-align: middle;
+    }
+
+    .mode-desc {
+      font-size: 12px; color: var(--text-dim); line-height: 1.6;
+      margin-bottom: 10px;
+    }
+
+    .install-method-tabs { display: flex; flex-direction: column; gap: 4px; }
+    .install-method-tab {
+      padding: 8px 10px; font-size: 12px; text-align: left;
+      background: #2d2d2d; border: 1px solid var(--border);
+      color: var(--text); border-radius: 4px; cursor: pointer;
+      font-family: inherit; transition: all .15s;
+    }
+    .install-method-tab:hover { border-color: var(--accent); }
+    .install-method-tab.active {
+      background: rgba(0,120,212,.15); border-color: var(--accent);
+      color: #fff; box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .method-panel { display: none; }
+    .method-panel.active { display: block; }
+
+    /* File tree */
+    .file-tree { padding: 4px 0; }
+    .tree-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 16px 4px 12px; font-size: 12px;
+      cursor: pointer; color: var(--text);
+    }
+    .tree-item:hover { background: #2a2d2e; }
+    .tree-item.active { background: #37373d; color: #fff; }
+    .tree-icon { font-size: 11px; opacity: .8; width: 18px; text-align: center; }
+    .tree-icon.sh { color: #89d185; }
+
+    /* Main editor area */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    .editor-tabs {
+      display: flex; background: var(--bg-tabs);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      align-items: stretch;
+    }
+    .editor-tab {
+      padding: 8px 14px; font-size: 12px; color: var(--text-dim);
+      cursor: pointer; border-right: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg-tabs); border-top: 2px solid transparent;
+    }
+    .editor-tab:hover { background: #37373d; }
+    .editor-tab.active {
+      background: var(--bg-tab-active); color: var(--text);
+      border-top-color: var(--accent);
+    }
+    .editor-tab .icon { color: #89d185; font-family: var(--font-mono); font-size: 11px; }
+    .tab-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+    .install-method-selector {
+      display: flex; align-items: center; gap: 6px; padding: 0 14px;
+      border-right: 1px solid var(--border); border-left: 1px solid var(--border);
+      background: var(--bg-tabs);
+    }
+    .install-method-selector .selector-label {
+      font-size: 12px; color: var(--text-dim);
+    }
+    .install-method-selector select {
+      background: var(--bg-sidebar); color: var(--text);
+      border: 1px solid var(--border); border-radius: 3px;
+      padding: 4px 8px; font-size: 12px; cursor: pointer;
+    }
+    .install-method-selector select:focus {
+      outline: none; border-color: var(--accent);
+    }
+
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 12px; background: #252526;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .toolbar-label { font-size: 11px; color: var(--text-dim); }
+    .toolbar-btns { display: flex; gap: 6px; }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .toolbar-btn {
+      padding: 3px 10px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s;
+    }
+    .toolbar-btn:hover {
+      background: rgba(255,255,255,.1);
+      border-color: var(--accent);
+    }
+    .toolbar-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .toolbar-btn.primary:hover {
+      background: var(--accent-hover);
+    }
+    .toolbar-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .step-card-container {
+      padding: 8px 10px;
+      background: #1e1e1e;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      animation: slideDown .3s ease;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .step-card {
+      background: #2d2d2d;
+      border-radius: 6px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--accent);
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .step-badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    .step-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .step-command {
+      background: #1a1a1a;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #e0e0e0;
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .step-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .step-btn {
+      padding: 5px 14px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s;
+    }
+    .step-btn:hover {
+      background: rgba(255,255,255,.1);
+    }
+    .step-btn.btn-modify {
+      border-color: var(--warning);
+      color: var(--warning);
+    }
+    .step-btn.btn-modify:hover {
+      background: rgba(255, 185, 0, .15);
+    }
+    .step-btn.btn-skip {
+      border-color: #666;
+      color: #aaa;
+    }
+    .step-btn.btn-skip:hover {
+      background: rgba(255,255,255,.08);
+    }
+    .step-btn.btn-execute {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .step-btn.btn-execute:hover {
+      background: var(--accent-hover);
+    }
+    .step-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .step-modify-input {
+      margin-top: 10px;
+      animation: fadeIn .2s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .step-modify-input input {
+      width: 100%;
+      padding: 8px 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: #2d2d2d;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: var(--text);
+      outline: none;
+      box-sizing: border-box;
+    }
+    .step-modify-input input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, .2);
+    }
+
+    .editor-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+    .editor-body.flash .code-editor-wrap {
+      animation: editor-flash .65s ease;
+    }
+    @keyframes editor-flash {
+      0%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+      40% { box-shadow: inset 0 0 0 2px rgba(0,120,212,.75); background: rgba(0,120,212,.04); }
+    }
+    .line-numbers {
+      width: 48px; background: var(--bg-editor);
+      border-right: 1px solid var(--border);
+      padding: 12px 6px; font-family: var(--font-mono);
+      font-size: 13px; line-height: 1.6; color: #858585;
+      text-align: right; overflow: hidden; user-select: none; flex-shrink: 0;
+    }
+    .code-editor-wrap {
+      flex: 1; position: relative; overflow: hidden; min-width: 0;
+      background: var(--bg-editor);
+    }
+    .code-highlight, .code-editor {
+      position: absolute; inset: 0;
+      margin: 0; padding: 12px 16px;
+      font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
+      tab-size: 2; overflow: auto; white-space: pre; word-wrap: normal;
+      border: none; resize: none;
+    }
+    .code-highlight {
+      pointer-events: none; color: #d4d4d4;
+      background: var(--bg-editor); z-index: 0;
+    }
+    .code-editor {
+      background: transparent; color: transparent;
+      caret-color: #aeafad; outline: none; z-index: 1;
+    }
+    /* VS Code Dark+ — Shell/Bash */
+    .hl-comment { color: #6a9955; font-style: italic; }
+    .hl-shebang { color: #c586c0; }
+    .hl-kw { color: #569cd6; }
+    .hl-string { color: #ce9178; }
+    .hl-fn { color: #dcdcaa; }
+    .hl-var { color: #9cdcfe; }
+    .hl-num { color: #b5cea8; }
+    .hl-flag { color: #9cdcfe; }
+    .hl-cmd { color: #dcdcaa; }
+    .hl-op { color: #d4d4d4; }
+    .hl-glob { color: #d7ba7d; }
+
+    /* Bottom panel */
+    .bottom-panel {
+      height: var(--panel-h);
+      border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; flex-shrink: 0;
+      transition: height .35s ease;
+    }
+    .bottom-panel.expanded { height: var(--panel-h-expanded); }
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; background: #252526;
+      border-bottom: 1px solid var(--border); height: 32px; flex-shrink: 0;
+    }
+    .panel-tabs { display: flex; gap: 0; height: 100%; }
+    .panel-tab {
+      padding: 0 14px; font-size: 12px; color: var(--text-dim);
+      cursor: pointer; display: flex; align-items: center;
+      border-bottom: 2px solid transparent; height: 100%;
+    }
+    .panel-tab:hover { color: var(--text); }
+    .panel-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .panel-summary { font-size: 11px; color: var(--text-dim); }
+
+    .panel-body { flex: 1; overflow: hidden; position: relative; }
+    .panel-content {
+      position: absolute; inset: 0; overflow-y: auto;
+      display: none; padding: 8px 12px;
+    }
+    .panel-content.active { display: block; }
+    .panel-content[data-panel="terminal"].active {
+      display: flex; flex-direction: column; padding: 0;
+    }
+    .panel-content[data-panel="terminal"] .terminal-wrap { padding: 0 12px 8px; }
+
+    /* Terminal viz */
+    .term-viz {
+      flex-shrink: 0; padding: 8px 12px 6px;
+      border-bottom: 1px solid var(--border);
+      background: #252526;
+      display: none;
+    }
+    .term-viz.active { display: block; }
+    .term-viz-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .term-viz-title {
+      font-size: 12px; font-weight: 600; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .term-viz-title .spinner {
+      width: 14px; height: 14px; border: 2px solid #444;
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    .term-viz.running .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .term-viz-pct { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
+
+    .term-progress-track {
+      height: 4px; background: #3c3c3c; border-radius: 2px;
+      overflow: hidden; margin-bottom: 10px;
+    }
+    .term-progress-fill {
+      height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #4ec9b0);
+      border-radius: 2px; transition: width .4s ease;
+    }
+
+    .step-pipeline {
+      display: flex; gap: 4px; flex-wrap: wrap;
+    }
+    .step-chip {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 600;
+      background: #2d2d2d; border: 1px solid var(--border);
+      color: var(--text-dim); transition: all .25s;
+      white-space: nowrap;
+    }
+    .step-chip .chip-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #555; flex-shrink: 0;
+    }
+    .step-chip.running {
+      border-color: var(--accent); color: var(--text);
+      background: rgba(0,120,212,.15);
+      box-shadow: 0 0 0 2px rgba(0,120,212,.2);
+    }
+    .step-chip.running .chip-dot {
+      background: var(--accent);
+      animation: pulse-dot 1s ease infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(1.3); }
+    }
+    .step-chip.done { border-color: #2d6a4f; color: var(--success); background: rgba(78,201,176,.1); }
+    .step-chip.done .chip-dot { background: var(--success); }
+    .step-chip.warn { border-color: #8a7a2a; color: var(--warning); background: rgba(220,220,170,.08); }
+    .step-chip.warn .chip-dot { background: var(--warning); }
+    .step-chip.fail { border-color: #8a3a2a; color: var(--error); background: rgba(244,135,113,.08); }
+    .step-chip.fail .chip-dot { background: var(--error); }
+
+    .install-step-card {
+      display: none; margin-top: 8px; padding: 8px 10px;
+      background: #1e1e1e; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 11px;
+    }
+    .install-step-card.active { display: block; }
+    .install-step-card .card-title { color: var(--text); font-weight: 600; margin-bottom: 6px; }
+    .install-step-card .card-sub { color: var(--text-dim); margin-bottom: 6px; }
+    .install-step-card .card-bar {
+      height: 6px; background: #3c3c3c; border-radius: 3px; overflow: hidden;
+    }
+    .install-step-card .card-bar-fill {
+      height: 100%; width: 0%; border-radius: 3px;
+      background: linear-gradient(90deg, #1a6b3c, #4ec9b0);
+      transition: width .15s linear;
+    }
+    .install-step-card .card-pct {
+      text-align: right; font-size: 10px; color: var(--success);
+      margin-top: 4px; font-family: var(--font-mono);
+    }
+
+    /* Terminal */
+    .terminal-wrap { flex: 1; overflow: hidden; min-height: 0; }
+    .terminal {
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.7;
+      padding: 4px 0; height: 100%; overflow-y: auto;
+    }
+    .term-line { white-space: pre-wrap; word-break: break-all; }
+    .term-line.highlight {
+      background: rgba(0,120,212,.12);
+      margin: 0 -12px; padding: 0 12px;
+      animation: fade-highlight 1.2s ease forwards;
+    }
+    @keyframes fade-highlight {
+      0% { background: rgba(0,120,212,.25); }
+      100% { background: transparent; }
+    }
+    .term-line.step-header {
+      color: #569cd6; font-weight: 600;
+      border-left: 3px solid var(--accent);
+      padding-left: 8px; margin: 4px 0 2px;
+    }
+    .term-line.cmd-line { color: #dcdcaa; }
+    .term-line.result-pass { color: var(--success); }
+    .term-line.result-warn { color: var(--warning); }
+    .term-line.result-fail { color: var(--error); }
+    .term-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 1px 6px; border-radius: 4px; margin-left: 6px;
+      vertical-align: middle;
+    }
+    .term-badge.pass { background: #1a3a2a; color: var(--success); }
+    .term-badge.warn { background: #3a3a1a; color: var(--warning); }
+    .term-badge.fail { background: #3a1a1a; color: var(--error); }
+    .term-typing { color: var(--text); }
+    .term-muted { color: var(--text-dim); }
+    .term-info { color: #569cd6; }
+    .term-success { color: var(--success); }
+    .term-warn { color: var(--warning); }
+    .term-error { color: var(--error); }
+    .term-prompt { color: var(--term-prompt); }
+    .term-path { color: var(--term-path); }
+    .term-cursor {
+      display: inline-block; width: 8px; height: 14px;
+      background: var(--text); animation: blink 1s step-end infinite;
+      vertical-align: text-bottom;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Check results */
+    .check-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 6px 0; border-bottom: 1px solid #2d2d2d;
+      transition: background .3s, opacity .3s;
+    }
+    .check-item.check-running {
+      background: rgba(0,120,212,.1);
+      border-radius: 4px; padding: 6px 8px; margin: 0 -8px;
+    }
+    .check-item.check-done { opacity: 1; }
+    .check-item.check-pending { opacity: .45; }
+    .check-status {
+      width: 18px; height: 18px; border-radius: 50%;
+      flex-shrink: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 10px; margin-top: 1px;
+    }
+    .status-pending { background: #444; color: #aaa; }
+    .status-pass { background: #1a3a2a; color: var(--success); }
+    .status-fail { background: #3a1a1a; color: var(--error); }
+    .status-warn { background: #3a3a1a; color: var(--warning); }
+    .check-name { font-size: 12px; }
+    .check-detail { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+    .paste-area {
+      width: 100%; height: 100px; background: #2d2d2d;
+      border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-family: var(--font-mono);
+      font-size: 11px; padding: 8px; resize: none; outline: none;
+    }
+
+    .package-list { font-size: 12px; line-height: 1.8; color: var(--text-dim); }
+    .package-list code {
+      background: #3c3c3c; padding: 1px 5px; border-radius: 3px;
+      font-family: var(--font-mono); color: var(--warning);
+    }
+    .package-list a { color: var(--accent); }
+
+    /* Status bar */
+    .statusbar {
+      height: 22px; background: var(--bg-statusbar);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 10px; font-size: 12px; color: #fff; flex-shrink: 0;
+    }
+    .statusbar-left, .statusbar-right { display: flex; gap: 14px; align-items: center; }
+    .statusbar-item { display: flex; align-items: center; gap: 4px; cursor: default; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 32px; right: 20px;
+      background: #323233; border: 1px solid var(--border);
+      padding: 10px 16px; border-radius: 6px; font-size: 13px;
+      opacity: 0; transition: opacity .3s; z-index: 200; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 900px) {
+      :root { --sidebar-w: 240px; --panel-h: 180px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ide">
+    <div class="titlebar">
+      <div class="titlebar-dots">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+      </div>
+      <div class="titlebar-center">
+        <strong>env_check.sh</strong> — cann-install — CANN 安装助手
+      </div>
+      <div class="titlebar-right">
+      </div>
+    </div>
+
+    <div class="workbench">
+      <nav class="activitybar">
+        <button class="act-btn active" title="资源管理器">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button class="act-btn" title="搜索">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="act-btn" title="终端" id="focusTerminal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <div class="act-spacer"></div>
+        <button class="act-btn" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </nav>
+
+      <aside class="sidebar collapsed" id="sidebar">
+        <div class="sidebar-header">CANN 安装配置</div>
+
+        <div class="sidebar-section" id="manualConfig">
+          <h4>安装方式</h4>
+          <div class="install-method-tabs" id="installMethodTabs">
+            <button class="install-method-tab active" data-method="yum">在线安装 (Yum)</button>
+            <button class="install-method-tab" data-method="conda">在线安装 (Conda)</button>
+            <button class="install-method-tab" data-method="runfile">离线安装 (Runfile)</button>
+          </div>
+
+          <h4 style="margin-top:14px">环境参数</h4>
+          <div class="field">
+            <label>操作系统</label>
+            <select id="os">
+              <option value="ubuntu">Ubuntu 20.04 / 22.04</option>
+              <option value="centos" selected>CentOS 7 / openEuler</option>
+              <option value="debian">Debian</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>CPU 架构</label>
+            <select id="arch">
+              <option value="x86_64">x86_64</option>
+              <option value="aarch64">aarch64</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>CANN 版本</label>
+            <select id="cannVersion">
+              <option value="8.0.RC3">8.0.RC3</option>
+              <option value="8.0.RC2">8.0.RC2</option>
+              <option value="8.0.RC1">8.0.RC1</option>
+              <option value="7.0.0">7.0.0</option>
+              <option value="6.3.RC1">6.3.RC1</option>
+            </select>
+          </div>
+
+          <div class="method-panel active" id="yumOptions">
+            <div class="field">
+              <label>芯片型号</label>
+              <select id="chipTypeYum">
+                <option value="910b">Ascend 910B</option>
+                <option value="910">Ascend 910</option>
+                <option value="310p">Ascend 310P</option>
+                <option value="310b">Ascend 310B</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Yum 源地址</label>
+              <input type="text" id="yumRepoUrl" value="https://repo.huaweicloud.com/ascend/cann" />
+              <div class="field-hint">将自动拼接版本与架构路径</div>
+            </div>
+          </div>
+
+          <div class="method-panel" id="condaOptions">
+            <div class="field">
+              <label>Python 版本</label>
+              <select id="pythonVersion">
+                <option value="3.8">Python 3.8</option>
+                <option value="3.9">Python 3.9</option>
+                <option value="3.10" selected>Python 3.10</option>
+                <option value="3.11">Python 3.11</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Conda 环境名</label>
+              <input type="text" id="condaEnv" value="cann-env" />
+            </div>
+            <div class="field">
+              <label>Conda 频道</label>
+              <input type="text" id="condaChannel" value="https://repo.huaweicloud.com/ascend/cann" />
+            </div>
+          </div>
+
+          <div class="method-panel" id="runfileOptions">
+            <div class="field">
+              <label>芯片型号</label>
+              <select id="chipType">
+                <option value="910b">Ascend 910B</option>
+                <option value="910">Ascend 910</option>
+                <option value="310p">Ascend 310P</option>
+                <option value="310b">Ascend 310B</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>安装用户</label>
+              <select id="userType">
+                <option value="root">root 用户</option>
+                <option value="nonroot">非 root 用户</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>安装路径</label>
+              <input type="text" id="installPath" placeholder="留空使用默认路径" />
+              <div class="field-hint" id="defaultPathHint">默认: /usr/local/Ascend</div>
+            </div>
+            <div class="field">
+              <label>驱动安装场景</label>
+              <select id="driverScene">
+                <option value="first">首次安装（驱动 → 固件）</option>
+                <option value="overlay">覆盖安装（固件 → 驱动）</option>
+              </select>
+            </div>
+            <label class="check-field"><input type="checkbox" id="installDriver" checked /> 安装 NPU 驱动和固件</label>
+            <label class="check-field"><input type="checkbox" id="installToolkit" checked /> 安装 CANN Toolkit</label>
+            <label class="check-field"><input type="checkbox" id="installKernels" checked /> 安装 CANN Kernels 算子库</label>
+            <label class="check-field"><input type="checkbox" id="installNnal" /> 安装 CANN NNAL 加速库</label>
+          </div>
+        </div>
+
+        <div class="sidebar-section" id="checkConfig" style="display:none">
+          <h4>环境检查流程</h4>
+          <p class="mode-desc">
+            1. 在代码区查看/编辑环境检查脚本<br>
+            2. 点击「在终端运行检查」执行<br>
+            3. 解析结果后自动生成安装命令
+          </p>
+          <button class="btn btn-primary btn-block" id="runCheckInTerminal">在终端运行检查</button>
+          <button class="btn btn-secondary btn-block" id="parseCheckOutput">解析检查结果</button>
+        </div>
+
+        <div class="sidebar-section">
+          <h4>操作</h4>
+          <button class="btn btn-primary btn-block" id="generateBtn">生成安装命令</button>
+          <button class="btn btn-success btn-block" id="runInstallBtn">在终端执行安装</button>
+          <button class="btn btn-secondary btn-block" id="copyBtn">复制全部脚本</button>
+        </div>
+
+        <div class="sidebar-section">
+          <h4>脚本文件</h4>
+          <div class="file-tree">
+            <div class="tree-item active" data-tab="check"><span class="tree-icon sh">$</span> env_check.sh</div>
+            <div class="tree-item" data-tab="install"><span class="tree-icon sh">$</span> <span class="tree-label">install_cann_yum.sh</span></div>
+            <div class="tree-item" data-tab="env"><span class="tree-icon sh">$</span> set_env.sh</div>
+            <div class="tree-item" data-tab="verify"><span class="tree-icon sh">$</span> verify_install.sh</div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="editor-tabs">
+          <div class="editor-tab active" data-tab="install"><span class="icon">$</span> <span class="tab-label">install_cann_yum.sh</span></div>
+          <div class="editor-tab" data-tab="check"><span class="icon">$</span> env_check.sh</div>
+          <div class="editor-tab" data-tab="env"><span class="icon">$</span> set_env.sh</div>
+          <div class="editor-tab" data-tab="verify"><span class="icon">$</span> verify_install.sh</div>
+          <div class="install-method-selector" id="editorInstallMethod">
+            <span class="selector-label">安装方式:</span>
+            <select id="editorMethodSelect">
+              <option value="yum">在线安装 (Yum)</option>
+              <option value="conda">在线安装 (Conda)</option>
+              <option value="runfile">离线安装 (Runfile)</option>
+            </select>
+          </div>
+          <div class="tab-actions">
+            <button class="btn btn-secondary" id="selectAllBtn">全选</button>
+            <button class="btn btn-primary" id="copyCurrentBtn">复制</button>
+          </div>
+        </div>
+
+        <div class="editor-toolbar">
+          <span class="toolbar-label" id="fileLabel">环境检查脚本 — 在 IDE 终端执行后解析结果</span>
+          <div class="toolbar-actions">
+            <button class="toolbar-btn" id="titlebarRunCheckBtn">环境检查</button>
+            <button class="toolbar-btn" id="toggleConfigBtn">配置</button>
+            <button class="toolbar-btn primary" id="titlebarRunInstallBtn">执行安装</button>
+          </div>
+        </div>
+
+        <div class="editor-body" id="editorBody">
+          <div class="line-numbers" id="lineNumbers"></div>
+          <div class="code-editor-wrap">
+            <pre class="code-highlight" id="codeHighlight" aria-hidden="true"></pre>
+            <textarea class="code-editor" id="codeEditor" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+          </div>
+        </div>
+
+        <div class="bottom-panel" id="bottomPanel">
+          <div class="panel-header">
+            <div class="panel-tabs">
+              <span class="panel-tab active" data-panel="terminal">终端</span>
+              <span class="panel-tab" data-panel="results">检查结果</span>
+              <span class="panel-tab" data-panel="paste">粘贴输出</span>
+              <span class="panel-tab" data-panel="packages">软件包清单</span>
+            </div>
+            <span class="panel-summary" id="checkSummary">就绪 — 选择配置模式开始</span>
+          </div>
+          <div class="panel-body">
+            <div class="panel-content active" data-panel="terminal">
+              <div class="term-viz" id="termViz">
+                <div class="term-viz-header">
+                  <div class="term-viz-title" id="termVizTitle">
+                    <span class="spinner" id="termVizSpinner"></span>
+                    <span id="termVizLabel">准备中...</span>
+                  </div>
+                  <span class="term-viz-pct" id="termVizPct">0%</span>
+                </div>
+                <div class="term-progress-track">
+                  <div class="term-progress-fill" id="termProgressFill"></div>
+                </div>
+                <div class="step-pipeline" id="stepPipeline"></div>
+                <div class="install-step-card" id="installStepCard">
+                  <div class="card-title" id="installCardTitle"></div>
+                  <div class="card-sub" id="installCardSub"></div>
+                  <div class="card-bar"><div class="card-bar-fill" id="installCardFill"></div></div>
+                  <div class="card-pct" id="installCardPct">0%</div>
+                </div>
+                <div class="step-card-container" id="stepCardContainer" style="display: none;">
+                  <div class="step-card">
+                    <div class="step-header">
+                      <span class="step-badge" id="stepBadge">步骤 1/6</span>
+                      <span class="step-title" id="stepTitle">安装 shadow 工具包</span>
+                    </div>
+                    <div class="step-command" id="stepCommand">yum install -y shadow-utils passwd</div>
+                    <div class="step-actions">
+                      <button class="step-btn btn-modify" id="stepModifyBtn">修改</button>
+                      <button class="step-btn btn-skip" id="stepSkipBtn">跳过</button>
+                      <button class="step-btn btn-execute" id="stepExecuteBtn">执行安装</button>
+                    </div>
+                    <div class="step-modify-input" id="stepModifyInput" style="display: none;">
+                      <input type="text" id="modifyInput" placeholder="输入自然语言（如：安装依赖）或命令行，回车自动转换">
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="terminal-wrap">
+                <div class="terminal" id="terminal">
+                  <div class="term-line"><span class="term-info">➜</span> <span class="term-muted">CANN Install Assistant — IDE 命令行安装向导</span></div>
+                  <div class="term-line"><span class="term-muted">  提示: 使用左侧「手动配置」或「环境检查」模式生成安装命令</span></div>
+                  <div class="term-line">&nbsp;</div>
+                  <div class="term-line term-prompt-line"><span class="term-prompt">user@ascend</span>:<span class="term-path">~/cann-install</span>$ <span class="term-cursor"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="panel-content" data-panel="results">
+              <div id="checkItems"></div>
+            </div>
+            <div class="panel-content" data-panel="paste">
+              <p style="font-size:11px;color:var(--text-dim);margin-bottom:6px">将终端中环境检查脚本的输出粘贴到此处，点击「解析检查结果」：</p>
+              <textarea class="paste-area" id="pasteOutput" placeholder="粘贴 uname -m、cat /etc/os-release、npu-smi info 等输出..."></textarea>
+            </div>
+            <div class="panel-content" data-panel="packages">
+              <div class="package-list" id="packageList"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="statusbar-item">⎇ main</span>
+        <span class="statusbar-item" id="statusWarnings">⚠ 0</span>
+        <span class="statusbar-item" id="statusMode">模式: 手动配置</span>
+      </div>
+      <div class="statusbar-right">
+        <span class="statusbar-item" id="statusLine">行 1, 列 1</span>
+        <span class="statusbar-item">UTF-8</span>
+        <span class="statusbar-item">Shell Script</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const state = { activeTab: 'install', activePanel: 'terminal', checkResults: {}, isRunning: false, installMethod: 'yum', showInstallSteps: false };
+
+    const INSTALL_METHODS = {
+      yum: {
+        label: '在线安装 (Yum)',
+        file: 'install_cann_yum.sh',
+        steps: ['安装 shadow 工具包', '配置用户属组', '安装依赖 & 配源', '安装 NPU 驱动', '安装 Toolkit', '安装后验证']
+      },
+      conda: {
+        label: '在线安装 (Conda)',
+        file: 'install_cann_conda.sh',
+        steps: ['Python 版本选择', '安装 Toolkit', '安装后验证']
+      },
+      runfile: {
+        label: '离线安装 (Runfile)',
+        file: 'install_cann_runfile.sh',
+        steps: ['配置用户属组', '安装依赖', '安装 CANN（驱动+Toolkit）', '安装后验证']
+      }
+    };
+
+    const els = {
+      os: document.getElementById('os'),
+      arch: document.getElementById('arch'),
+      cannVersion: document.getElementById('cannVersion'),
+      chipType: document.getElementById('chipType'),
+      userType: document.getElementById('userType'),
+      installPath: document.getElementById('installPath'),
+      driverScene: document.getElementById('driverScene'),
+      installDriver: document.getElementById('installDriver'),
+      installToolkit: document.getElementById('installToolkit'),
+      installKernels: document.getElementById('installKernels'),
+      installNnal: document.getElementById('installNnal'),
+      pythonVersion: document.getElementById('pythonVersion'),
+      condaEnv: document.getElementById('condaEnv'),
+      condaChannel: document.getElementById('condaChannel'),
+      yumRepoUrl: document.getElementById('yumRepoUrl'),
+      codeEditor: document.getElementById('codeEditor'),
+      codeHighlight: document.getElementById('codeHighlight'),
+      editorBody: document.getElementById('editorBody'),
+      lineNumbers: document.getElementById('lineNumbers'),
+      fileLabel: document.getElementById('fileLabel'),
+      checkItems: document.getElementById('checkItems'),
+      checkSummary: document.getElementById('checkSummary'),
+      pasteOutput: document.getElementById('pasteOutput'),
+      packageList: document.getElementById('packageList'),
+      defaultPathHint: document.getElementById('defaultPathHint'),
+      terminal: document.getElementById('terminal'),
+      bottomPanel: document.getElementById('bottomPanel'),
+      termViz: document.getElementById('termViz'),
+      termVizLabel: document.getElementById('termVizLabel'),
+      termVizSpinner: document.getElementById('termVizSpinner'),
+      termVizPct: document.getElementById('termVizPct'),
+      termProgressFill: document.getElementById('termProgressFill'),
+      stepPipeline: document.getElementById('stepPipeline'),
+      installStepCard: document.getElementById('installStepCard'),
+      installCardTitle: document.getElementById('installCardTitle'),
+      installCardSub: document.getElementById('installCardSub'),
+      installCardFill: document.getElementById('installCardFill'),
+      installCardPct: document.getElementById('installCardPct'),
+      runCheckBtn: document.getElementById('runCheckInTerminal'),
+      runInstallBtn: document.getElementById('runInstallBtn'),
+      toast: document.getElementById('toast'),
+      statusMode: document.getElementById('statusMode'),
+      statusWarnings: document.getElementById('statusWarnings'),
+      editorMethodSelect: document.getElementById('editorMethodSelect'),
+      statusLine: document.getElementById('statusLine'),
+      sidebar: document.getElementById('sidebar'),
+      toggleConfigBtn: document.getElementById('toggleConfigBtn'),
+      titlebarRunInstallBtn: document.getElementById('titlebarRunInstallBtn'),
+      titlebarRunCheckBtn: document.getElementById('titlebarRunCheckBtn'),
+      titlebarParseBtn: document.getElementById('titlebarParseBtn'),
+      titlebarGenerateBtn: document.getElementById('titlebarGenerateBtn'),
+      stepCardContainer: document.getElementById('stepCardContainer'),
+      stepBadge: document.getElementById('stepBadge'),
+      stepTitle: document.getElementById('stepTitle'),
+      stepCommand: document.getElementById('stepCommand'),
+      stepModifyBtn: document.getElementById('stepModifyBtn'),
+      stepSkipBtn: document.getElementById('stepSkipBtn'),
+      stepExecuteBtn: document.getElementById('stepExecuteBtn'),
+      stepModifyInput: document.getElementById('stepModifyInput'),
+      modifyInput: document.getElementById('modifyInput')
+    };
+
+    const CHECK_STEPS = [
+      { id: 'arch', name: 'CPU 架构', cmd: 'uname -m', lines: ['x86_64'], status: 'pass', badge: 'PASS' },
+      { id: 'os', name: '操作系统', cmd: 'cat /etc/os-release | head -5', lines: ['PRETTY_NAME="Ubuntu 22.04.4 LTS"', 'NAME="Ubuntu"', 'VERSION_ID="22.04"'], status: 'pass', badge: 'PASS' },
+      { id: 'driver', name: 'NPU 驱动', cmd: 'npu-smi info', lines: ['npu-smi: command not found', '检查失败或未安装'], status: 'warn', badge: 'WARN' },
+      { id: 'memory', name: '可用内存', cmd: 'free -h | grep Mem', lines: ['Mem:           62Gi        8.2Gi        48Gi'], status: 'pass', badge: 'PASS' },
+      { id: 'disk', name: '磁盘空间', cmd: 'df -h /usr/local', lines: ['Filesystem      Size  Used Avail Use% Mounted on', '/dev/sda1       500G   80G  395G  17% /'], status: 'pass', badge: 'PASS' },
+      { id: 'gcc', name: 'GCC 编译器', cmd: 'gcc --version | head -1', lines: ['gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0'], status: 'pass', badge: 'PASS' },
+      { id: 'python', name: 'Python 环境', cmd: 'python3 --version', lines: ['Python 3.10.12'], status: 'pass', badge: 'PASS' },
+      { id: 'cann', name: 'CANN 已安装', cmd: 'ls ascend-toolkit', lines: ['未安装'], status: 'warn', badge: 'WARN' }
+    ];
+
+    function buildMockOutput() {
+      const lines = [
+        '==========================================',
+        '  CANN 环境检查',
+        '==========================================', ''
+      ];
+      CHECK_STEPS.forEach((s, i) => {
+        lines.push('', `[${i + 1}/${CHECK_STEPS.length}] ${s.name}`, `>>> ${s.cmd}`, ...s.lines, '');
+      });
+      lines.push('==========================================', '  环境检查完成', '==========================================');
+      return lines.join('\n');
+    }
+
+    const MOCK_CHECK_OUTPUT = buildMockOutput();
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function setRunning(running, btn) {
+      state.isRunning = running;
+      els.runCheckBtn.disabled = running;
+      els.runInstallBtn.disabled = running;
+      if (els.titlebarRunInstallBtn) els.titlebarRunInstallBtn.disabled = running;
+      if (els.titlebarRunCheckBtn) els.titlebarRunCheckBtn.disabled = running;
+      if (els.titlebarParseBtn) els.titlebarParseBtn.disabled = running;
+      if (els.titlebarGenerateBtn) els.titlebarGenerateBtn.disabled = running;
+      if (btn) btn.classList.toggle('running', running);
+      els.bottomPanel.classList.toggle('expanded', running);
+      els.termViz.classList.toggle('active', running);
+      els.termViz.classList.toggle('running', running);
+    }
+
+    function setProgress(pct, label) {
+      els.termProgressFill.style.width = pct + '%';
+      els.termVizPct.textContent = Math.round(pct) + '%';
+      if (label) els.termVizLabel.textContent = label;
+    }
+
+    function buildPipeline(chips, type) {
+      els.stepPipeline.innerHTML = chips.map(c =>
+        `<div class="step-chip ${c.state || ''}" data-id="${c.id}"><span class="chip-dot"></span>${c.label}</div>`
+      ).join('');
+      els.installStepCard.classList.toggle('active', type === 'install');
+    }
+
+    function updateChip(id, state) {
+      const chip = els.stepPipeline.querySelector(`[data-id="${id}"]`);
+      if (chip) chip.className = 'step-chip ' + state;
+    }
+
+    function getPromptLine() {
+      return els.terminal.querySelector('.term-prompt-line');
+    }
+
+    function removePromptLine() {
+      const line = getPromptLine();
+      if (line) line.remove();
+    }
+
+    function addPromptLine() {
+      removePromptLine();
+      const div = document.createElement('div');
+      div.className = 'term-line term-prompt-line';
+      div.innerHTML = '<span class="term-prompt">user@ascend</span>:<span class="term-path">~/cann-install</span>$ <span class="term-cursor"></span>';
+      els.terminal.appendChild(div);
+      els.terminal.scrollTop = els.terminal.scrollHeight;
+    }
+
+    function appendTermLine(html, cls) {
+      removePromptLine();
+      const div = document.createElement('div');
+      div.className = 'term-line' + (cls ? ' ' + cls : '');
+      div.innerHTML = html;
+      els.terminal.appendChild(div);
+      els.terminal.scrollTop = els.terminal.scrollHeight;
+      return div;
+    }
+
+    function appendTermText(text, cls) {
+      return appendTermLine(escapeHtml(text), cls);
+    }
+
+    function escapeHtml(t) {
+      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function typeCommand(cmd) {
+      removePromptLine();
+      const line = document.createElement('div');
+      line.className = 'term-line term-prompt-line';
+      const prompt = '<span class="term-prompt">user@ascend</span>:<span class="term-path">~/cann-install</span>$ ';
+      line.innerHTML = prompt + '<span class="term-typing"></span><span class="term-cursor"></span>';
+      els.terminal.appendChild(line);
+      const typing = line.querySelector('.term-typing');
+      for (let i = 0; i < cmd.length; i++) {
+        typing.textContent += cmd[i];
+        els.terminal.scrollTop = els.terminal.scrollHeight;
+        await sleep(28 + Math.random() * 22);
+      }
+      line.querySelector('.term-cursor')?.remove();
+      await sleep(200);
+      return line;
+    }
+
+    async function animateInstallBar(title, sub, duration) {
+      els.installCardTitle.textContent = title;
+      els.installCardSub.textContent = sub;
+      els.installCardFill.style.width = '0%';
+      els.installCardPct.textContent = '0%';
+      const steps = 20;
+      const stepMs = duration / steps;
+      for (let i = 1; i <= steps; i++) {
+        const pct = Math.round((i / steps) * 100);
+        els.installCardFill.style.width = pct + '%';
+        els.installCardPct.textContent = pct + '%';
+        await sleep(stepMs);
+      }
+    }
+
+    function getConfig() {
+      const method = state.installMethod;
+      const userType = els.userType?.value || 'root';
+      const customPath = els.installPath?.value?.trim() || '';
+      const defaultPath = userType === 'root' ? '/usr/local/Ascend' : '${HOME}/Ascend';
+      const chipFromYum = document.getElementById('chipTypeYum')?.value;
+      const chipFromRunfile = els.chipType?.value;
+      return {
+        installMethod: method,
+        os: els.os.value, arch: els.arch.value, cannVersion: els.cannVersion.value,
+        chipType: method === 'yum' ? (chipFromYum || '910b') : (chipFromRunfile || '910b'),
+        userType,
+        installPath: customPath || defaultPath,
+        driverScene: els.driverScene?.value || 'first',
+        installDriver: els.installDriver?.checked ?? true,
+        installToolkit: els.installToolkit?.checked ?? true,
+        installKernels: els.installKernels?.checked ?? true,
+        installNnal: els.installNnal?.checked ?? false,
+        pythonVersion: els.pythonVersion?.value || '3.10',
+        condaEnv: els.condaEnv?.value || 'cann-env',
+        condaChannel: els.condaChannel?.value || 'https://repo.huaweicloud.com/ascend/cann',
+        yumRepoUrl: els.yumRepoUrl?.value || 'https://repo.huaweicloud.com/ascend/cann'
+      };
+    }
+
+    function getInstallFileName(method) {
+      return INSTALL_METHODS[method || state.installMethod].file;
+    }
+
+    function scriptStep(lines, n, total, title, body) {
+      lines.push('');
+      lines.push('# ══════════════════════════════════════════════════════════');
+      lines.push(`#  步骤 ${n}/${total}: ${title}`);
+      lines.push('# ══════════════════════════════════════════════════════════');
+      lines.push('echo ""');
+      lines.push(`echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"`);
+      lines.push(`echo "  [步骤 ${n}/${total}] ${title}"`);
+      lines.push(`echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"`);
+      body.forEach(l => lines.push(l));
+      lines.push(`echo "✓ [步骤 ${n}/${total}] ${title} — 完成"`);
+    }
+
+    function getInstallTabLabel() {
+      const meta = INSTALL_METHODS[state.installMethod];
+      return `${tabFiles.install} — ${meta.label}（${meta.steps.length} 步，见下方命令）`;
+    }
+
+    function scriptHeader(lines, method) {
+      const meta = INSTALL_METHODS[method];
+      lines.push(`# 安装步骤一览（共 ${meta.steps.length} 步）:`);
+      meta.steps.forEach((s, i) => lines.push(`#   ${i + 1}. ${s}`));
+      lines.push('');
+    }
+
+    function userGroupCommands() {
+      return [
+        'groupadd HwHiAiUser 2>/dev/null || true',
+        'useradd -g HwHiAiUser -d /home/HwHiAiUser -m HwHiAiUser 2>/dev/null || true',
+        'chmod 750 /home/HwHiAiUser 2>/dev/null || true',
+        'id HwHiAiUser 2>/dev/null || echo "用户 HwHiAiUser 已就绪"'
+      ];
+    }
+
+    function depInstallCommands(os) {
+      if (os === 'ubuntu' || os === 'debian') {
+        return [
+          'apt-get update',
+          'apt-get install -y gcc g++ make cmake python3 python3-pip python3-dev',
+          'apt-get install -y unzip patch libgl1-mesa-glx 2>/dev/null || true'
+        ];
+      }
+      return [
+        'yum install -y gcc gcc-c++ make cmake unzip patch',
+        'yum install -y python3 python3-devel python3-pip',
+        'yum install -y dos2unix llvm openblas-devel 2>/dev/null || true'
+      ];
+    }
+
+    function updateInstallMethodUI(refreshInstall) {
+      const method = state.installMethod;
+      document.querySelectorAll('.install-method-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.method === method)
+      );
+      document.getElementById('yumOptions').classList.toggle('active', method === 'yum');
+      document.getElementById('condaOptions').classList.toggle('active', method === 'conda');
+      document.getElementById('runfileOptions').classList.toggle('active', method === 'runfile');
+
+      const installFile = getInstallFileName(method);
+      document.querySelector('.editor-tab[data-tab="install"] .tab-label').textContent = installFile;
+      document.querySelector('.tree-item[data-tab="install"] .tree-label').textContent = installFile;
+      tabFiles.install = installFile;
+
+      els.statusMode.textContent = `安装: ${INSTALL_METHODS[method].label}`;
+      if (els.editorMethodSelect) els.editorMethodSelect.value = method;
+      if (refreshInstall) showTab('install');
+      renderPackages();
+    }
+
+    function chipLabel(chip) {
+      return { '910b': '910b', '910': '910', '310p': '310p', '310b': '310b' }[chip] || chip;
+    }
+
+    function generateCheckScript() {
+      const lines = [
+        '#!/bin/bash',
+        '# CANN 安装前环境检查脚本',
+        '# 用法: bash env_check.sh',
+        '',
+        'echo "=========================================="',
+        'echo "  CANN 环境检查 - $(date \\"+%Y-%m-%d %H:%M:%S\\")"',
+        'echo "=========================================="',
+        ''
+      ];
+      CHECK_STEPS.forEach((item, i) => {
+        lines.push('echo ""');
+        lines.push(`echo "[${i + 1}/${CHECK_STEPS.length}] ${item.name}"`);
+        lines.push(`echo ">>> ${item.cmd}"`);
+        lines.push(`${item.cmd} 2>&1 || echo "检查失败或未安装"`);
+        lines.push('');
+      });
+      lines.push('echo "=========================================="');
+      lines.push('echo "  环境检查完成，请将输出粘贴到「粘贴输出」面板"');
+      lines.push('echo "=========================================="');
+      return lines.join('\n');
+    }
+
+    function generateInstallScriptYum(cfg, includeSteps = true, stepLimit = null) {
+      const { arch, cannVersion: ver, yumRepoUrl, chipType } = cfg;
+      const chip = chipLabel(chipType);
+      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
+      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
+      const repoBase = `${yumRepoUrl}/${ver}/yum/${arch}`;
+      const total = 6;
+      const lines = [
+        '#!/bin/bash',
+        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
+        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
+        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
+        `CANN_VERSION=${ver}`,
+        `ARCH=${(arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
+        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
+        `INSTALL_METHOD=yum                    # yum | conda | runfile`,
+        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
+        ''
+      ];
+      
+      if (!includeSteps) {
+        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
+        return lines.join('\n');
+      }
+      
+      lines.push('# CANN 在线安装 (Yum) — 由安装助手自动生成');
+      lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
+      lines.push('');
+      lines.push('set -e');
+      
+      scriptHeader(lines, 'yum');
+
+      const allSteps = [
+        { title: '安装 shadow 工具包', cmds: ['yum install -y shadow-utils passwd'] },
+        { title: '配置用户属组', cmds: userGroupCommands() },
+        { title: '安装依赖 & 配源', cmds: [
+            `cat > /etc/yum.repos.d/ascend-cann.repo << EOF`,
+            `[ascend-cann]`,
+            `name=Ascend CANN ${ver}`,
+            `baseurl=${repoBase}`,
+            `enabled=1`,
+            `gpgcheck=0`,
+            `EOF`,
+            'yum clean all && yum makecache',
+            ...depInstallCommands('centos')
+          ]},
+        { title: '安装 NPU 驱动', cmds: [
+            `yum install -y ascend-npu-driver-${chip} 2>/dev/null || yum install -y ascend-driver-${ver}`,
+            'npu-smi info 2>&1 || echo "驱动安装完成，请重启后验证"'
+          ]},
+        { title: '安装 Toolkit', cmds: [
+            `yum install -y ascend-toolkit-${ver}`,
+            'source /usr/local/Ascend/ascend-toolkit/set_env.sh'
+          ]},
+        { title: '安装后验证', cmds: [
+            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
+            'atc --version 2>&1 || echo "atc 检查"',
+            `cat /usr/local/Ascend/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || true`,
+            'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 验证"',
+            'echo "✅ CANN Yum 在线安装完成！"'
+          ]}
+      ];
+
+      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
+      
+      stepsToShow.forEach((step, i) => {
+        const actualIndex = i + 1;
+        scriptStep(lines, actualIndex, total, step.title, step.cmds);
+      });
+
+      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
+        lines.push('');
+        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
+      }
+      
+      return lines.join('\n');
+    }
+
+    function generateInstallScriptConda(cfg, includeSteps = true, stepLimit = null) {
+      const { cannVersion: ver, pythonVersion: py, condaEnv, condaChannel } = cfg;
+      const chip = chipLabel(cfg.chipType);
+      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
+      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
+      const total = 3;
+      const lines = [
+        '#!/bin/bash',
+        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
+        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
+        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
+        `CANN_VERSION=${ver}`,
+        `ARCH=${(cfg.arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
+        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
+        `INSTALL_METHOD=conda                  # yum | conda | runfile`,
+        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
+        ''
+      ];
+      
+      if (!includeSteps) {
+        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
+        return lines.join('\n');
+      }
+      
+      lines.push('# CANN 在线安装 (Conda) — 由安装助手自动生成');
+      lines.push(`# CANN: ${ver} | Python: ${py} | 环境: ${condaEnv}`);
+      lines.push('');
+      lines.push('set -e');
+      
+      scriptHeader(lines, 'conda');
+
+      const allSteps = [
+        { title: 'Python 版本选择', cmds: [
+            `conda create -n ${condaEnv} python=${py} -y`,
+            `source "$(conda info --base)/etc/profile.d/conda.sh"`,
+            `conda activate ${condaEnv}`,
+            'python --version'
+          ]},
+        { title: '安装 Toolkit', cmds: [
+            `conda config --add channels ${condaChannel}`,
+            `conda install -y -n ${condaEnv} cann-toolkit=${ver}`,
+            `conda activate ${condaEnv}`,
+            'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true'
+          ]},
+        { title: '安装后验证', cmds: [
+            `conda activate ${condaEnv}`,
+            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
+            'python -c "import acl; print(acl.__file__)" 2>&1 || echo "ACL 模块验证"',
+            'atc --version 2>&1 || echo "atc 检查"',
+            'echo "✅ CANN Conda 在线安装完成！"',
+            `echo "使用: conda activate ${condaEnv}"`
+          ]}
+      ];
+
+      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
+      
+      stepsToShow.forEach((step, i) => {
+        const actualIndex = i + 1;
+        scriptStep(lines, actualIndex, total, step.title, step.cmds);
+      });
+
+      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
+        lines.push('');
+        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
+      }
+      
+      return lines.join('\n');
+    }
+
+    function generateInstallScriptRunfile(cfg, includeSteps = true, stepLimit = null) {
+      const { arch, cannVersion: ver, chipType, installPath: path, userType, driverScene } = cfg;
+      const chip = chipLabel(chipType);
+      const isRoot = userType === 'root';
+      const sudo = isRoot ? 'sudo ' : '';
+      const total = 4;
+      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
+      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
+      const lines = [
+        '#!/bin/bash',
+        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
+        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
+        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
+        `CANN_VERSION=${ver}`,
+        `ARCH=${(arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
+        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
+        `INSTALL_METHOD=runfile                # yum | conda | runfile`,
+        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
+        ''
+      ];
+      
+      if (!includeSteps) {
+        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
+        return lines.join('\n');
+      }
+      
+      lines.push('# CANN 离线安装 (Runfile) — 由安装助手自动生成');
+      lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
+      lines.push(`# 安装路径: ${path}`);
+      lines.push('');
+      lines.push('set -e');
+      lines.push('cd "$(dirname "$0")"');
+      
+      scriptHeader(lines, 'runfile');
+
+      const cannStepCmds = [];
+      if (cfg.installDriver) {
+        if (driverScene === 'first') {
+          cannStepCmds.push(`chmod +x Ascend-hdk-${chip}-npu-driver_*.run Ascend-hdk-${chip}-npu-firmware_*.run`);
+          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-driver_*.run --full --install-for-all`);
+          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-firmware_*.run --full`);
+        } else {
+          cannStepCmds.push(`chmod +x Ascend-hdk-${chip}-npu-firmware_*.run Ascend-hdk-${chip}-npu-driver_*.run`);
+          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-firmware_*.run --full`);
+          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-driver_*.run --full --install-for-all`);
+        }
+        cannStepCmds.push('npu-smi info 2>&1 || true');
+      }
+      if (cfg.installToolkit) {
+        cannStepCmds.push(`chmod +x Ascend-cann-toolkit_${ver}_linux-${arch}.run`);
+        cannStepCmds.push(`./Ascend-cann-toolkit_${ver}_linux-${arch}.run --check`);
+        cannStepCmds.push(isRoot ? `${sudo}./Ascend-cann-toolkit_${ver}_linux-${arch}.run --install` : `./Ascend-cann-toolkit_${ver}_linux-${arch}.run --install`);
+      }
+      if (cfg.installKernels) {
+        cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
+        cannStepCmds.push(`chmod +x Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run`);
+        cannStepCmds.push(`./Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run --install`);
+      }
+      if (cfg.installNnal) {
+        cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
+        cannStepCmds.push(`chmod +x Ascend-cann-nnal_${ver}_linux-${arch}.run`);
+        cannStepCmds.push(`./Ascend-cann-nnal_${ver}_linux-${arch}.run --install`);
+      }
+      cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
+      if (cfg.installNnal) cannStepCmds.push(`source ${path}/nnal/atb/set_env.sh`);
+
+      const allSteps = [
+        { title: '配置用户属组', cmds: userGroupCommands() },
+        { title: '安装依赖', cmds: depInstallCommands(cfg.os) },
+        { title: '安装驱动 & Toolkit', cmds: cannStepCmds },
+        { title: '安装后验证', cmds: [
+            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
+            'atc --version 2>&1 || echo "atc 检查"',
+            `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "安装信息"`,
+            'echo "✅ CANN Runfile 离线安装完成！"'
+          ]}
+      ];
+
+      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
+      
+      stepsToShow.forEach((step, i) => {
+        const actualIndex = i + 1;
+        scriptStep(lines, actualIndex, total, step.title, step.cmds);
+      });
+
+      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
+        lines.push('');
+        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
+      }
+      
+      return lines.join('\n');
+    }
+
+    function generateInstallScript(cfg, stepLimit = null) {
+      cfg = cfg || getConfig();
+      if (cfg.installMethod === 'yum') return generateInstallScriptYum(cfg, state.showInstallSteps, stepLimit);
+      if (cfg.installMethod === 'conda') return generateInstallScriptConda(cfg, state.showInstallSteps, stepLimit);
+      return generateInstallScriptRunfile(cfg, state.showInstallSteps, stepLimit);
+    }
+
+    function generateEnvScript(cfg) {
+      if (cfg.installMethod === 'conda') {
+        return [
+          '#!/bin/bash', '# CANN Conda 环境变量配置',
+          '',
+          `conda activate ${cfg.condaEnv}`,
+          'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true',
+          '',
+          `# 永久生效: conda activate ${cfg.condaEnv}`,
+          `# echo 'conda activate ${cfg.condaEnv}' >> ~/.bashrc`
+        ].join('\n');
+      }
+      const path = cfg.installMethod === 'yum' ? '/usr/local/Ascend' : cfg.installPath;
+      return [
+        '#!/bin/bash', '# CANN 环境变量配置',
+        '',
+        `# 推荐: source 官方脚本`,
+        `source ${path}/ascend-toolkit/set_env.sh`,
+        cfg.installNnal ? `source ${path}/nnal/atb/set_env.sh` : '',
+        '',
+        '# 手动配置（可选）',
+        `export ASCEND_TOOLKIT_HOME=${path}/ascend-toolkit/latest`,
+        'export PATH=${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/bin:$PATH',
+        'export LD_LIBRARY_PATH=${ASCEND_TOOLKIT_HOME}/lib64:$LD_LIBRARY_PATH',
+        'export PYTHONPATH=${ASCEND_TOOLKIT_HOME}/python/site-packages:$PYTHONPATH',
+        '',
+        `# 永久生效: echo 'source ${path}/ascend-toolkit/set_env.sh' >> ~/.bashrc`
+      ].filter(Boolean).join('\n');
+    }
+
+    function generateVerifyScript(cfg) {
+      const path = cfg.installPath;
+      const arch = cfg.arch;
+      return [
+        '#!/bin/bash', '# CANN 安装验证',
+        `source ${path}/ascend-toolkit/set_env.sh 2>/dev/null || true`,
+        '',
+        'echo "=== NPU 驱动 ==="', 'npu-smi info 2>&1 || echo "驱动未就绪"',
+        'echo ""', 'echo "=== Toolkit 版本 ==="',
+        `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "信息文件不存在"`,
+        'echo ""', 'echo "=== 开发工具 ==="', 'atc --version 2>&1 || echo "atc 不可用"',
+        'echo ""', 'echo "=== 环境变量 ==="', 'env | grep -i ASCEND || echo "未检测到"',
+        'echo ""', 'echo "=== Python ACL ==="',
+        'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 不可用"'
+      ].join('\n');
+    }
+
+    function generatePackageList(cfg) {
+      const { arch, cannVersion: ver, chipType, installMethod } = cfg;
+      const chip = chipLabel(chipType);
+      const pkgs = [];
+
+      if (installMethod === 'yum') {
+        return [
+          `ascend-toolkit-${ver} (yum)`,
+          'shadow-utils, passwd',
+          'gcc, gcc-c++, cmake, python3-devel, dos2unix'
+        ];
+      }
+      if (installMethod === 'conda') {
+        return [
+          `cann-toolkit=${ver} (conda)`,
+          `python=${cfg.pythonVersion} → 环境 ${cfg.condaEnv}`
+        ];
+      }
+
+      if (cfg.installDriver) {
+        pkgs.push(`Ascend-hdk-${chip}-npu-driver_<version>_linux-${arch}.run`);
+        pkgs.push(`Ascend-hdk-${chip}-npu-firmware_<version>.run`);
+      }
+      if (cfg.installToolkit) pkgs.push(`Ascend-cann-toolkit_${ver}_linux-${arch}.run`);
+      if (cfg.installKernels) pkgs.push(`Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run`);
+      if (cfg.installNnal) pkgs.push(`Ascend-cann-nnal_${ver}_linux-${arch}.run`);
+      return pkgs;
+    }
+
+    function syncParamsFromConfig() {
+      const cfg = getConfig();
+      const newContent = generateInstallScript(cfg);
+      if (els.codeEditor.value.trim() !== newContent.trim() && state.activeTab === 'install') {
+        setCodeContent(newContent);
+      }
+    }
+
+    const scripts = {
+      check: () => generateCheckScript(),
+      install: () => generateInstallScript(getConfig()),
+      env: () => generateEnvScript(getConfig()),
+      verify: () => generateVerifyScript(getConfig())
+    };
+
+    const tabLabels = {
+      check: '环境检查脚本 — 在 IDE 终端执行后解析结果',
+      install: 'CANN 安装命令 — 按安装方式生成',
+      env: '环境变量配置 — source 或写入 ~/.bashrc',
+      verify: '安装验证脚本 — 安装完成后执行'
+    };
+
+    const tabFiles = { check: 'env_check.sh', install: 'install_cann_yum.sh', env: 'set_env.sh', verify: 'verify_install.sh' };
+
+    const BASH_KEYWORDS = ['if','then','else','elif','fi','for','do','done','while','until','case','esac','function','return','in','select','export','local','readonly','declare','set','unset','echo','printf','exit','trap','source','alias','true','false'];
+    const BASH_BUILTINS = ['chmod','chown','mkdir','rm','cp','mv','cd','ls','cat','grep','sed','awk','find','wget','curl','sudo','apt','apt-get','yum','conda','uname','npu-smi','python3','python','bash','sh','free','df','gcc','env','head','date','groupadd','useradd'];
+
+    function highlightBash(code) {
+      return code.split('\n').map(line => {
+        if (!line) return '';
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#!')) {
+          return `<span class="hl-shebang">${escapeHtml(line)}</span>`;
+        }
+        if (trimmed.startsWith('#')) {
+          return `<span class="hl-comment">${escapeHtml(line)}</span>`;
+        }
+
+        let result = escapeHtml(line);
+
+        // 保护字符串，避免内部被误高亮
+        const strings = [];
+        result = result.replace(/"(?:[^"\\]|\\.)*"/g, m => { strings.push(m); return `\x00S${strings.length - 1}\x00`; });
+        result = result.replace(/'(?:[^'\\]|\\.)*'/g, m => { strings.push(m); return `\x00S${strings.length - 1}\x00`; });
+
+        // 变量 ${VAR} / $VAR
+        result = result.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, '<span class="hl-var">${$1}</span>');
+        result = result.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, '<span class="hl-var">$$$1</span>');
+
+        // 通配符路径 *.run
+        result = result.replace(/([\w.-]+\*[\w.*-]*)/g, '<span class="hl-glob">$1</span>');
+
+        // 可执行命令 ./xxx
+        result = result.replace(/(\.\/[\w.*-]+)/g, '<span class="hl-cmd">$1</span>');
+
+        // 参数标志 --xxx
+        result = result.replace(/(\s--[\w-]+)/g, '<span class="hl-flag">$1</span>');
+
+        // 数字
+        result = result.replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-num">$1</span>');
+
+        // 关键字 & 内建命令
+        BASH_KEYWORDS.forEach(kw => {
+          result = result.replace(new RegExp(`\\b(${kw})\\b`, 'g'), '<span class="hl-kw">$1</span>');
+        });
+        BASH_BUILTINS.forEach(fn => {
+          result = result.replace(new RegExp(`\\b(${fn})\\b`, 'g'), '<span class="hl-fn">$1</span>');
+        });
+
+        // 还原字符串
+        strings.forEach((s, i) => {
+          result = result.replace(`\x00S${i}\x00`, `<span class="hl-string">${s}</span>`);
+        });
+
+        return result;
+      }).join('\n');
+    }
+
+    function setCodeContent(code) {
+      els.codeEditor.value = code;
+      els.codeHighlight.innerHTML = highlightBash(code);
+      updateLineNumbers();
+      requestAnimationFrame(() => {
+        els.codeEditor.scrollTop = els.codeEditor.scrollHeight;
+        els.codeHighlight.scrollTop = els.codeHighlight.scrollHeight;
+        els.lineNumbers.scrollTop = els.codeEditor.scrollHeight;
+      });
+    }
+
+    function syncHighlight() {
+      els.codeHighlight.innerHTML = highlightBash(els.codeEditor.value);
+    }
+
+    function flashEditor() {
+      els.editorBody.classList.remove('flash');
+      void els.editorBody.offsetWidth;
+      els.editorBody.classList.add('flash');
+      setTimeout(() => els.editorBody.classList.remove('flash'), 700);
+    }
+
+    function generateAllCommands() {
+      const cfg = getConfig();
+      const installFile = getInstallFileName(cfg.installMethod);
+      const updated = [installFile, 'set_env.sh', 'verify_install.sh'];
+
+      state.showInstallSteps = true;
+      showTab('install');
+      flashEditor();
+      renderPackages();
+
+      const methodLabel = INSTALL_METHODS[cfg.installMethod].label;
+      els.checkSummary.textContent = `已更新: ${updated.join('、')}`;
+      els.fileLabel.textContent = getInstallTabLabel();
+      showToast(`已生成 ${methodLabel} 脚本，共 ${INSTALL_METHODS[cfg.installMethod].steps.length} 个步骤`);
+    }
+
+    function updateLineNumbers() {
+      const lines = els.codeEditor.value.split('\n').length;
+      els.lineNumbers.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+      els.statusLine.textContent = `行 ${els.codeEditor.value.substr(0, els.codeEditor.selectionStart).split('\n').length}, 列 1`;
+    }
+
+    function showTab(tab) {
+      state.activeTab = tab;
+      document.querySelectorAll('.editor-tab, .tree-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.tab === tab);
+      });
+      setCodeContent(scripts[tab]());
+      if (tab === 'install') {
+        els.fileLabel.textContent = getInstallTabLabel();
+      } else {
+        els.fileLabel.textContent = tabLabels[tab];
+      }
+      document.querySelector('.titlebar-center strong').textContent = tabFiles[tab];
+    }
+
+    function showPanel(panel) {
+      state.activePanel = panel;
+      document.querySelectorAll('.panel-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panel));
+      document.querySelectorAll('.panel-content').forEach(c => c.classList.toggle('active', c.dataset.panel === panel));
+    }
+
+    function showToast(msg) {
+      els.toast.textContent = msg;
+      els.toast.classList.add('show');
+      setTimeout(() => els.toast.classList.remove('show'), 2500);
+    }
+
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板')).catch(() => {
+        els.codeEditor.select();
+        document.execCommand('copy');
+        showToast('已复制到剪贴板');
+      });
+    }
+
+    function appendTerminal(text, cls) {
+      appendTermText(text, cls);
+    }
+
+    function appendTerminalHtml(html) {
+      appendTermLine(html);
+    }
+
+    async function simulateCheckRun() {
+      if (state.isRunning) return;
+      els.sidebar.classList.add('collapsed');
+      els.toggleConfigBtn.textContent = '⚙ 配置';
+      showPanel('terminal');
+      setRunning(true, els.runCheckBtn);
+
+      const chips = CHECK_STEPS.map(s => ({ id: s.id, label: s.name, state: '' }));
+      buildPipeline(chips, 'check');
+      setProgress(0, '正在启动环境检查...');
+      renderCheckItemsLive({}, null);
+
+      await sleep(400);
+      await typeCommand('bash env_check.sh');
+      await sleep(300);
+
+      appendTermText('==========================================');
+      appendTermText('  CANN 环境检查 - ' + new Date().toLocaleString('zh-CN'));
+      appendTermText('==========================================', 'term-info');
+      await sleep(200);
+
+      for (let i = 0; i < CHECK_STEPS.length; i++) {
+        const step = CHECK_STEPS[i];
+        const pct = ((i) / CHECK_STEPS.length) * 100;
+        setProgress(pct, `检查中: ${step.name} (${i + 1}/${CHECK_STEPS.length})`);
+        updateChip(step.id, 'running');
+        renderCheckItemsLive({}, step.id);
+
+        await sleep(250);
+        const header = appendTermText(`[${i + 1}/${CHECK_STEPS.length}] ${step.name}`, 'step-header highlight');
+        await sleep(150);
+        appendTermText(`>>> ${step.cmd}`, 'cmd-line');
+
+        for (const line of step.lines) {
+          await sleep(80 + Math.random() * 60);
+          const resultCls = step.status === 'pass' ? 'result-pass' : step.status === 'warn' ? 'result-warn' : 'result-fail';
+          appendTermText(line, resultCls);
+        }
+
+        const badgeCls = step.status === 'pass' ? 'pass' : step.status === 'warn' ? 'warn' : 'fail';
+        appendTermLine(`<span class="term-badge ${badgeCls}">${step.badge}</span> ${step.name} 检查完成`);
+        updateChip(step.id, step.status === 'pass' ? 'done' : step.status === 'warn' ? 'warn' : 'fail');
+
+        const partial = {};
+        CHECK_STEPS.slice(0, i + 1).forEach(s => {
+          partial[s.id] = { status: s.status === 'pass' ? 'pass' : 'warn', detail: s.lines[0] };
+        });
+        renderCheckItemsLive(partial, null);
+        await sleep(200);
+        header?.classList.remove('highlight');
+      }
+
+      setProgress(100, '环境检查完成');
+      appendTermText('');
+      appendTermText('==========================================', 'term-success');
+      appendTermText('  ✓ 环境检查完成 — 6 项通过, 2 项警告', 'term-success');
+      appendTermText('==========================================', 'term-success');
+      addPromptLine();
+
+      els.pasteOutput.value = MOCK_CHECK_OUTPUT;
+      els.checkSummary.textContent = '检查完成 6/8 项通过，2 项警告';
+      parseCheckOutput(MOCK_CHECK_OUTPUT, true);
+      state.showInstallSteps = true;
+      flashEditor();
+      showTab('install');
+      setRunning(false, els.runCheckBtn);
+      showPanel('results');
+      showToast('环境检查完成，结果已同步到检查面板');
+    }
+
+    function getInstallPhases(cfg) {
+      const steps = INSTALL_METHODS[cfg.installMethod].steps;
+      const chip = chipLabel(cfg.chipType);
+      const { arch, cannVersion: ver } = cfg;
+
+      if (cfg.installMethod === 'yum') {
+        return [
+          { id: 's1', label: steps[0], cmd: 'yum install -y shadow-utils passwd', isRun: false, logs: ['Installing shadow-utils...', 'shadow 工具包就绪'] },
+          { id: 's2', label: steps[1], cmd: 'groupadd HwHiAiUser && useradd -g HwHiAiUser HwHiAiUser', isRun: false, logs: ['创建用户组 HwHiAiUser', '创建用户 HwHiAiUser'] },
+          { id: 's3', label: steps[2], cmd: 'yum makecache && yum install -y gcc cmake python3-devel', isRun: false, logs: ['配置 ascend-cann.repo', '安装系统依赖'] },
+          { id: 's4', label: steps[3], cmd: `yum install -y ascend-npu-driver-${chip}`, isRun: false, logs: ['安装 NPU 驱动包', 'npu-smi 驱动加载'] },
+          { id: 's5', label: steps[4], cmd: `yum install -y ascend-toolkit-${ver}`, isRun: false, logs: ['安装 ascend-toolkit', 'source set_env.sh'] },
+          { id: 's6', label: steps[5], cmd: 'npu-smi info && atc --version', isRun: false, logs: ['NPU 状态检查', 'Toolkit 验证通过'] }
+        ];
+      }
+      if (cfg.installMethod === 'conda') {
+        return [
+          { id: 's1', label: steps[0], cmd: `conda create -n ${cfg.condaEnv} python=${cfg.pythonVersion} -y`, isRun: false, logs: [`创建环境 ${cfg.condaEnv}`, `Python ${cfg.pythonVersion} 就绪`] },
+          { id: 's2', label: steps[1], cmd: `conda install -y cann-toolkit=${ver}`, isRun: false, logs: ['添加 conda 频道', 'Toolkit 安装完成'] },
+          { id: 's3', label: steps[2], cmd: 'python -c "import acl" && npu-smi info', isRun: false, logs: ['ACL 模块验证', 'NPU 状态正常'] }
+        ];
+      }
+
+      return [
+        { id: 's1', label: steps[0], cmd: 'groupadd HwHiAiUser && useradd HwHiAiUser', isRun: false, logs: ['配置 HwHiAiUser 用户属组'] },
+        { id: 's2', label: steps[1], cmd: depInstallCommands(cfg.os)[0], isRun: false, logs: ['安装 gcc/cmake/python3 等依赖'] },
+        { id: 's3', label: steps[2], cmd: `./Ascend-hdk-${chip}-npu-driver_*.run && ./Ascend-cann-toolkit_${ver}_linux-${arch}.run --install`, isRun: true, logs: ['安装 NPU 驱动 & 固件', '安装 CANN Toolkit'] },
+        { id: 's4', label: steps[3], cmd: 'npu-smi info && atc --version', isRun: false, logs: ['驱动验证', 'Toolkit 验证'] }
+      ];
+    }
+
+    let installState = {
+      phases: [],
+      currentStep: 0,
+      cfg: null,
+      isExecuting: false
+    };
+
+    function showStepCard(stepIndex) {
+      if (!installState.phases || stepIndex >= installState.phases.length) {
+        els.stepCardContainer.style.display = 'none';
+        return;
+      }
+      const phase = installState.phases[stepIndex];
+      els.stepBadge.textContent = `步骤 ${stepIndex + 1}/${installState.phases.length}`;
+      els.stepTitle.textContent = phase.label;
+      els.stepCommand.textContent = phase.cmd;
+      els.stepModifyInput.style.display = 'none';
+      els.modifyInput.value = '';
+      els.stepCardContainer.style.display = 'block';
+    }
+
+    async function executeStep() {
+      if (installState.isExecuting) return;
+      installState.isExecuting = true;
+
+      const phase = installState.phases[installState.currentStep];
+      const cfg = installState.cfg;
+      const stepIndex = installState.currentStep;
+
+      els.stepExecuteBtn.disabled = true;
+      els.stepModifyBtn.disabled = true;
+      els.stepSkipBtn.disabled = true;
+
+      showPanel('terminal');
+
+      appendTermText(`════════ 步骤 ${stepIndex + 1}/${installState.phases.length}: ${phase.label} ════════`, 'step-header highlight');
+      await sleep(200);
+      if (phase.isRun) {
+        appendTermText('$ chmod +x Ascend-*.run', 'cmd-line');
+        await sleep(120);
+      }
+      appendTermText(`$ ${phase.cmd}`, 'cmd-line');
+      await sleep(200);
+
+      await animateInstallBar(phase.label, phase.label + ' — 正在执行...', 1000 + stepIndex * 180);
+
+      for (const log of phase.logs) {
+        await sleep(120);
+        appendTermText('  ' + log, 'term-info');
+      }
+
+      appendTermText(`  ✓ ${phase.label} 完成`, 'term-success');
+      updateChip(phase.id, 'done');
+      setProgress(((stepIndex + 1) / installState.phases.length) * 100, `${phase.label} 完成`);
+      await sleep(250);
+
+      installState.isExecuting = false;
+      installState.currentStep++;
+      
+      if (installState.currentStep < installState.phases.length) {
+        showStepCard(installState.currentStep);
+        els.stepExecuteBtn.disabled = false;
+        els.stepModifyBtn.disabled = false;
+        els.stepSkipBtn.disabled = false;
+        showToast(`步骤 ${stepIndex + 1} 完成，进入步骤 ${installState.currentStep + 1}`);
+      } else {
+        els.stepCardContainer.style.display = 'none';
+        if (cfg.installMethod !== 'conda' && (cfg.installDriver || cfg.installMethod === 'yum')) {
+          appendTermText('');
+          appendTermText('$ npu-smi info', 'cmd-line');
+          await sleep(300);
+          appendTermText('| 0     Ascend 910B | OK     | 68W   | 42C  | 0/32768 MB  |', 'term-success');
+        }
+        setProgress(100, 'CANN 安装完成');
+        appendTermText('');
+        appendTermText(`🎉 ${INSTALL_METHODS[cfg.installMethod].label} 成功！（演示模式）`, 'term-success');
+        appendTermText('   下一步: 运行 verify_install.sh 验证安装', 'term-muted');
+        addPromptLine();
+        els.checkSummary.textContent = `安装完成 — ${INSTALL_METHODS[cfg.installMethod].label}，共 ${installState.phases.length} 步`;
+        showToast('CANN 安装流程执行完毕');
+        setRunning(false, els.runInstallBtn);
+      }
+    }
+
+    function skipStep() {
+      const currentStep = installState.currentStep;
+      const phase = installState.phases[currentStep];
+      appendTermText(`║ 跳过步骤 ${currentStep + 1}: ${phase.label}`, 'term-muted');
+      updateChip(phase.id, 'done');
+      installState.currentStep++;
+      if (installState.currentStep < installState.phases.length) {
+        showStepCard(installState.currentStep);
+        showToast(`已跳过步骤 ${currentStep + 1}，进入步骤 ${installState.currentStep + 1}`);
+      } else {
+        els.stepCardContainer.style.display = 'none';
+        setProgress(100, '安装完成（部分步骤已跳过）');
+        appendTermText('');
+        appendTermText(`📋 ${INSTALL_METHODS[installState.cfg.installMethod].label} 完成（部分步骤已跳过）`, 'term-success');
+        addPromptLine();
+        showToast('安装流程已结束（部分步骤已跳过）');
+      }
+    }
+
+    function toggleModify() {
+      const isHidden = els.stepModifyInput.style.display === 'none';
+      els.stepModifyInput.style.display = isHidden ? 'block' : 'none';
+      if (isHidden) {
+        els.modifyInput.value = '';
+        setTimeout(() => els.modifyInput.focus(), 100);
+      }
+    }
+
+    function naturalToCommand(input) {
+      input = input.trim();
+      console.log('naturalToCommand input:', input);
+      
+      let pkgMgr = 'yum';
+      if (installState && installState.cfg) {
+        const os = installState.cfg.os || 'centos';
+        pkgMgr = os === 'ubuntu' || os === 'debian' ? 'apt-get' : 'yum';
+      }
+      
+      if (input.indexOf('安装') === 0) {
+        const pkg = input.substring(2).trim();
+        return `${pkgMgr} install -y ${pkg}`;
+      }
+      if (input.indexOf('卸载') === 0) {
+        const pkg = input.substring(2).trim();
+        return `${pkgMgr} remove -y ${pkg}`;
+      }
+      if (input === '更新系统') return `${pkgMgr} update -y`;
+      if (input === '更新软件包') return `${pkgMgr} upgrade -y`;
+      if (input === '查看目录') return 'ls -la';
+      if (input === '查看进程') return 'ps aux';
+      if (input === '查看内存') return 'free -h';
+      if (input === '查看磁盘') return 'df -h';
+      if (input === '查看CPU') return 'top -bn1 | head -5';
+      if (input === '重启系统') return 'reboot';
+      if (input === '关闭系统') return 'shutdown -h now';
+      if (input === '清理缓存') return `${pkgMgr} clean all && ${pkgMgr === 'yum' ? 'yum makecache' : 'apt-get update'}`;
+      if (input === '安装依赖') return `${pkgMgr} install -y gcc gcc-c++ cmake python3-devel`;
+      if (input === '安装pip') return 'pip3 install --upgrade pip';
+      if (input === '查看版本') return 'cat /etc/os-release';
+      if (input === '查看内核') return 'uname -r';
+      if (input === '查看架构') return 'uname -m';
+      if (input === '查看网络') return 'ifconfig || ip addr';
+      if (input === '安装docker') return `${pkgMgr} install -y docker`;
+      if (input === '启动docker') return 'systemctl start docker && systemctl enable docker';
+      if (input === '查看docker版本') return 'docker --version';
+      if (input === '查看conda环境') return 'conda env list';
+      if (input === '安装npu驱动') return `${pkgMgr} install -y ascend-npu-driver`;
+      if (input === '安装toolkit') return `${pkgMgr} install -y ascend-toolkit`;
+      if (input === '检查npu状态') return 'npu-smi info';
+      if (input === '检查toolkit版本') return 'atc --version';
+      if (input === '配置环境变量') return 'source /usr/local/Ascend/ascend-toolkit/set_env.sh';
+      if (input === '查看环境变量') return 'env | grep -i ASCEND';
+      if (input === '测试acl') return 'python3 -c "import acl; print(acl)"';
+      if (input === '验证安装') return 'npu-smi info && atc --version';
+      if (input === '同步时间') return 'ntpdate time.nist.gov';
+      if (input === '关闭防火墙') return 'systemctl stop firewalld && systemctl disable firewalld';
+      
+      if (input.indexOf('创建用户') === 0) {
+        const user = input.substring(4).trim();
+        return `useradd ${user}`;
+      }
+      if (input.indexOf('创建用户组') === 0) {
+        const group = input.substring(5).trim();
+        return `groupadd ${group}`;
+      }
+      if (input.indexOf('删除用户') === 0) {
+        const user = input.substring(4).trim();
+        return `userdel ${user}`;
+      }
+      if (input.indexOf('删除用户组') === 0) {
+        const group = input.substring(5).trim();
+        return `groupdel ${group}`;
+      }
+      if (input.indexOf('切换目录') === 0) {
+        const dir = input.substring(4).trim();
+        return `cd ${dir}`;
+      }
+      if (input.indexOf('创建目录') === 0) {
+        const dir = input.substring(4).trim();
+        return `mkdir -p ${dir}`;
+      }
+      if (input.indexOf('删除目录') === 0) {
+        const dir = input.substring(4).trim();
+        return `rm -rf ${dir}`;
+      }
+      if (input.indexOf('查看文件') === 0) {
+        const file = input.substring(4).trim();
+        return `cat ${file}`;
+      }
+      if (input.indexOf('编辑文件') === 0) {
+        const file = input.substring(4).trim();
+        return `vim ${file}`;
+      }
+      if (input.indexOf('重启服务') === 0) {
+        const service = input.substring(4).trim();
+        return `systemctl restart ${service}`;
+      }
+      if (input.indexOf('启动服务') === 0) {
+        const service = input.substring(4).trim();
+        return `systemctl start ${service}`;
+      }
+      if (input.indexOf('停止服务') === 0) {
+        const service = input.substring(4).trim();
+        return `systemctl stop ${service}`;
+      }
+      if (input.indexOf('设置开机自启') === 0) {
+        const service = input.substring(5).trim();
+        return `systemctl enable ${service}`;
+      }
+      if (input.indexOf('检查服务状态') === 0) {
+        const service = input.substring(5).trim();
+        return `systemctl status ${service}`;
+      }
+      if (input.indexOf('查看日志') === 0) {
+        const file = input.substring(4).trim();
+        return `tail -f ${file || '/var/log/messages'}`;
+      }
+      if (input.indexOf('安装python包') === 0) {
+        const pkg = input.substring(6).trim();
+        return `pip3 install ${pkg}`;
+      }
+      if (input.indexOf('创建conda环境') === 0) {
+        const name = input.substring(6).trim();
+        return `conda create -n ${name} python=3.8 -y`;
+      }
+      if (input.indexOf('激活conda环境') === 0) {
+        const name = input.substring(6).trim();
+        return `conda activate ${name}`;
+      }
+      if (input.indexOf('安装conda包') === 0) {
+        const pkg = input.substring(6).trim();
+        return `conda install -y ${pkg}`;
+      }
+      if (input.indexOf('删除conda环境') === 0) {
+        const name = input.substring(6).trim();
+        return `conda env remove -n ${name} -y`;
+      }
+      if (input.indexOf('下载文件') === 0) {
+        const url = input.substring(4).trim();
+        return `wget ${url}`;
+      }
+      if (input.indexOf('解压文件') === 0) {
+        const file = input.substring(4).trim();
+        return `tar -xzf ${file}`;
+      }
+      if (input.indexOf('压缩文件') === 0) {
+        const file = input.substring(4).trim();
+        return `tar -czf ${file}.tar.gz ${file}`;
+      }
+      if (input.indexOf('查找文件') === 0) {
+        const name = input.substring(4).trim();
+        return `find / -name "${name}" 2>/dev/null`;
+      }
+      if (input.indexOf('搜索内容') === 0) {
+        const content = input.substring(4).trim();
+        return `grep -r "${content}" .`;
+      }
+      if (input.indexOf('测试网络') === 0) {
+        const host = input.substring(4).trim();
+        return `ping -c 3 ${host}`;
+      }
+      if (input.indexOf('查看端口') === 0) {
+        const port = input.substring(4).trim();
+        return `netstat -tlnp | grep ${port}`;
+      }
+      if (input.indexOf('开放端口') === 0) {
+        const port = input.substring(4).trim();
+        return `firewall-cmd --add-port=${port}/tcp --permanent && firewall-cmd --reload`;
+      }
+      if (input.indexOf('修改权限') === 0) {
+        const parts = input.substring(4).split('为');
+        if (parts.length === 2) {
+          return `chmod ${parts[1].trim()} ${parts[0].trim()}`;
+        }
+      }
+      if (input.indexOf('修改所有者') === 0) {
+        const parts = input.substring(5).split('为');
+        if (parts.length === 2) {
+          return `chown ${parts[1].trim()} ${parts[0].trim()}`;
+        }
+      }
+      
+      console.log('naturalToCommand no match, return original');
+      return input;
+    }
+
+    function applyModify() {
+      const input = els.modifyInput.value.trim();
+      console.log('applyModify called, input:', input);
+      if (!input) return;
+      
+      const newCmd = naturalToCommand(input);
+      console.log('naturalToCommand result:', newCmd);
+      installState.phases[installState.currentStep].cmd = newCmd;
+      els.stepCommand.textContent = newCmd;
+      els.stepModifyInput.style.display = 'none';
+      showToast(`命令已修改: ${input} → ${newCmd}`);
+    }
+
+    async function simulateInstallRun() {
+      if (state.isRunning) return;
+      showPanel('terminal');
+      showTab('install');
+
+      const cfg = getConfig();
+      const installFile = getInstallFileName(cfg.installMethod);
+      const phases = getInstallPhases(cfg);
+
+      installState = {
+        phases: phases,
+        currentStep: 0,
+        cfg: cfg,
+        isExecuting: false
+      };
+
+      state.showInstallSteps = true;
+
+      buildPipeline(phases.map(p => ({ id: p.id, label: p.label, state: '' })), 'install');
+      setProgress(0, `准备 ${INSTALL_METHODS[cfg.installMethod].label}...`);
+
+      await sleep(400);
+      await typeCommand(`bash ${installFile}`);
+      await sleep(300);
+      appendTermText(`# ${INSTALL_METHODS[cfg.installMethod].label} — 由安装助手自动生成`, 'term-muted');
+      appendTermText(`# CANN ${cfg.cannVersion} | ${cfg.arch}`, 'term-muted');
+      INSTALL_METHODS[cfg.installMethod].steps.forEach((s, i) => {
+        appendTermText(`#   ${i + 1}. ${s}`, 'term-muted');
+      });
+      appendTermText('');
+
+      showStepCard(0);
+      setRunning(true, els.runInstallBtn);
+    }
+
+    function renderCheckItemsLive(results, runningId) {
+      els.checkItems.innerHTML = CHECK_STEPS.map(item => {
+        const r = results[item.id];
+        const isRunning = runningId === item.id;
+        const isDone = !!r;
+        let cls = 'status-pending', icon = isRunning ? '◌' : '?', detail = isRunning ? '正在检查...' : '等待检查';
+        let rowCls = isRunning ? 'check-running' : isDone ? 'check-done' : 'check-pending';
+
+        if (r) {
+          cls = r.status === 'pass' ? 'status-pass' : r.status === 'warn' ? 'status-warn' : 'status-fail';
+          icon = r.status === 'pass' ? '✓' : r.status === 'warn' ? '!' : '✗';
+          detail = r.detail;
+        } else if (isRunning) {
+          cls = 'status-pending';
+        }
+
+        return `<div class="check-item ${rowCls}" data-check-id="${item.id}">
+          <div class="check-status ${cls}">${icon}</div>
+          <div><div class="check-name">${item.name}</div><div class="check-detail">${detail}</div></div>
+        </div>`;
+      }).join('');
+
+      if (runningId && state.activePanel === 'results') {
+        const el = els.checkItems.querySelector(`[data-check-id="${runningId}"]`);
+        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+
+      const warns = Object.values(results).filter(r => r.status === 'warn' || r.status === 'fail').length;
+      els.statusWarnings.textContent = `⚠ ${warns}`;
+    }
+
+    function renderCheckItems(results) {
+      renderCheckItemsLive(results, null);
+    }
+
+    function parseCheckOutput(text, silent) {
+      const results = {};
+      const lower = text.toLowerCase();
+
+      const archMatch = text.match(/\b(x86_64|aarch64)\b/);
+      if (archMatch) { results.arch = { status: 'pass', detail: `架构: ${archMatch[1]}` }; els.arch.value = archMatch[1]; }
+      else results.arch = { status: 'fail', detail: '未检测到架构' };
+
+      if (lower.includes('ubuntu')) { results.os = { status: 'pass', detail: 'Ubuntu' }; els.os.value = 'ubuntu'; }
+      else if (lower.includes('centos') || lower.includes('openeuler')) { results.os = { status: 'pass', detail: 'CentOS/openEuler' }; els.os.value = 'centos'; }
+      else if (lower.includes('debian')) { results.os = { status: 'pass', detail: 'Debian' }; els.os.value = 'debian'; }
+      else if (text.includes('PRETTY_NAME')) results.os = { status: 'warn', detail: '请手动确认系统' };
+      else results.os = { status: 'fail', detail: '未检测到 OS' };
+
+      if (lower.includes('command not found') && lower.includes('npu-smi')) {
+        results.driver = { status: 'warn', detail: '驱动未安装，需安装驱动固件' };
+        els.installDriver.checked = true; els.driverScene.value = 'first';
+      } else if (/NPU\s+\d+/i.test(text) || lower.includes('health')) {
+        results.driver = { status: 'pass', detail: 'NPU 驱动正常' }; els.driverScene.value = 'overlay';
+      } else results.driver = { status: 'warn', detail: '驱动状态未知' };
+
+      results.memory = text.includes('Mem:') ? { status: 'pass', detail: '内存信息已获取' } : { status: 'warn', detail: '未检测到内存' };
+      results.disk = (text.includes('Avail') || text.includes('G')) ? { status: 'pass', detail: '磁盘 ≥ 20GB 建议' } : { status: 'warn', detail: '请确认磁盘空间' };
+      results.gcc = text.includes('gcc') ? { status: 'pass', detail: 'GCC 已安装' } : { status: 'warn', detail: 'GCC 未检测到' };
+      results.python = text.match(/Python\s+[\d.]+/) ? { status: 'pass', detail: text.match(/Python\s+[\d.]+/)[0] } : { status: 'warn', detail: 'Python 未检测到' };
+
+      if (lower.includes('ascend-toolkit') && !lower.includes('未安装')) {
+        results.cann = { status: 'pass', detail: '已有 CANN 安装' }; els.driverScene.value = 'overlay';
+      } else if (lower.includes('未安装')) {
+        results.cann = { status: 'warn', detail: 'CANN 未安装，将全新安装' };
+        els.installToolkit.checked = true;
+      } else results.cann = { status: 'warn', detail: 'CANN 状态未知' };
+
+      state.checkResults = results;
+      renderCheckItems(results);
+      const pass = Object.values(results).filter(r => r.status === 'pass').length;
+      els.checkSummary.textContent = `检查完成 ${pass}/${Object.keys(results).length} 项通过，配置已自动更新`;
+      if (!silent) {
+        showPanel('results');
+        showTab('install');
+        showToast('检查结果已解析，安装命令已生成');
+      }
+    }
+
+    function renderPackages() {
+      const cfg = getConfig();
+      const pkgs = generatePackageList(cfg);
+      let sourceText = cfg.installMethod === 'runfile'
+        ? '从 <a href="https://www.hiascend.com/software/cann/community" target="_blank">昇腾社区</a> 下载 Run 包：'
+        : cfg.installMethod === 'yum'
+          ? 'Yum 在线安装将拉取以下组件：'
+          : 'Conda 在线安装将拉取以下组件：';
+      els.packageList.innerHTML = `<p>${sourceText}</p><br>${pkgs.map((p, i) => `${i + 1}. <code>${p}</code>`).join('<br>')}<br><br><p>详细安装步骤请查看代码区 <code>${getInstallFileName(cfg.installMethod)}</code></p>`;
+    }
+
+    function updateDefaultPathHint() {
+      if (els.defaultPathHint && els.userType) {
+        els.defaultPathHint.textContent = els.userType.value === 'root' ? '默认: /usr/local/Ascend' : '默认: ~/Ascend';
+      }
+    }
+
+    function bindConfigField(id, handler) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', handler);
+      el.addEventListener('input', handler);
+    }
+
+    // Events
+    document.querySelectorAll('.editor-tab, .tree-item').forEach(tab => {
+      tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    });
+
+    document.querySelectorAll('.panel-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        showPanel(tab.dataset.panel);
+        if (tab.dataset.panel === 'packages') renderPackages();
+      });
+    });
+
+    document.querySelectorAll('.install-method-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        state.installMethod = tab.dataset.method;
+        updateInstallMethodUI(true);
+      });
+    });
+
+    const onConfigChange = () => {
+      if (state.activeTab !== 'check') showTab(state.activeTab);
+      renderPackages();
+    };
+    ['os', 'arch', 'cannVersion', 'chipType', 'chipTypeYum', 'userType', 'installPath', 'driverScene',
+     'installDriver', 'installToolkit', 'installKernels', 'installNnal',
+     'pythonVersion', 'condaEnv', 'condaChannel', 'yumRepoUrl'].forEach(id => bindConfigField(id, onConfigChange));
+
+    if (els.userType) els.userType.addEventListener('change', updateDefaultPathHint);
+    document.getElementById('generateBtn').addEventListener('click', generateAllCommands);
+    document.getElementById('runInstallBtn').addEventListener('click', simulateInstallRun);
+    document.getElementById('runCheckInTerminal').addEventListener('click', simulateCheckRun);
+    document.getElementById('parseCheckOutput').addEventListener('click', () => {
+      const text = els.pasteOutput.value.trim();
+      if (!text) { showToast('请先粘贴或运行环境检查'); return; }
+      parseCheckOutput(text);
+    });
+    document.getElementById('copyBtn').addEventListener('click', () => copyText(Object.entries(scripts).map(([k, fn]) => `# === ${tabFiles[k]} ===\n${fn()}`).join('\n\n')));
+    document.getElementById('copyCurrentBtn').addEventListener('click', () => copyText(els.codeEditor.value));
+    document.getElementById('selectAllBtn').addEventListener('click', () => els.codeEditor.select());
+    document.getElementById('focusTerminal').addEventListener('click', () => showPanel('terminal'));
+    
+    function toggleSidebar() {
+      els.sidebar.classList.toggle('collapsed');
+      els.toggleConfigBtn.textContent = els.sidebar.classList.contains('collapsed') ? '⚙ 配置' : '✕ 关闭';
+      els.titlebarRunCheckBtn.disabled = !els.sidebar.classList.contains('collapsed');
+    }
+    els.toggleConfigBtn.addEventListener('click', toggleSidebar);
+    els.editorMethodSelect.addEventListener('change', (e) => {
+      state.installMethod = e.target.value;
+      updateInstallMethodUI(true);
+    });
+    els.titlebarRunInstallBtn.addEventListener('click', simulateInstallRun);
+    els.titlebarRunCheckBtn.addEventListener('click', simulateCheckRun);
+    
+    els.stepExecuteBtn.addEventListener('click', executeStep);
+    els.stepSkipBtn.addEventListener('click', skipStep);
+    els.stepModifyBtn.addEventListener('click', toggleModify);
+    els.modifyInput.addEventListener('keydown', (e) => {
+      console.log('modifyInput keydown event, key:', e.key);
+      if (e.key === 'Enter') {
+        console.log('Enter key pressed, calling applyModify');
+        applyModify();
+      }
+    });
+    
+    els.codeEditor.addEventListener('input', () => { syncHighlight(); updateLineNumbers(); });
+    els.codeEditor.addEventListener('scroll', () => {
+      els.lineNumbers.scrollTop = els.codeEditor.scrollTop;
+      els.codeHighlight.scrollTop = els.codeEditor.scrollTop;
+      els.codeHighlight.scrollLeft = els.codeEditor.scrollLeft;
+    });
+
+    // Init
+    updateDefaultPathHint();
+    updateInstallMethodUI(false);
+    renderCheckItems({});
+    renderPackages();
+    showTab('check');
+  </script>
+</body>
+</html>
