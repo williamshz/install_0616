@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
   <title>CANN 安装 — IDE 命令行向导</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1178,7 +1180,7 @@
 
     function buildPipeline(chips, type) {
       els.stepPipeline.innerHTML = chips.map(c =>
-        `<div class="step-chip ${c.state || ''}" data-id="${c.id}"><span class="chip-dot"></span>${c.label}</div>`
+        `<div class="step-chip ${escapeAttr(c.state || '')}" data-id="${escapeAttr(c.id)}"><span class="chip-dot"></span>${escapeHtml(c.label)}</div>`
       ).join('');
       els.installStepCard.classList.toggle('active', type === 'install');
     }
@@ -1221,7 +1223,28 @@
     }
 
     function escapeHtml(t) {
-      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function escapeAttr(t) {
+      return escapeHtml(t).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    // 生成的脚本会被复制到 shell 中执行，自由文本字段必须限制为安全字符
+    function sanitizeField(value, pattern, fallback) {
+      const v = String(value ?? '').trim();
+      return v && pattern.test(v) ? v : fallback;
+    }
+
+    function sanitizeUrl(value, fallback) {
+      const v = String(value ?? '').trim();
+      if (!v || /[\s"'`$;&|<>()\\]/.test(v)) return fallback;
+      try {
+        const url = new URL(v);
+        return (url.protocol === 'https:' || url.protocol === 'http:') ? v : fallback;
+      } catch {
+        return fallback;
+      }
     }
 
     async function typeCommand(cmd) {
@@ -1260,8 +1283,8 @@
     function getConfig() {
       const method = state.installMethod;
       const userType = els.userType?.value || 'root';
-      const customPath = els.installPath?.value?.trim() || '';
       const defaultPath = userType === 'root' ? '/usr/local/Ascend' : '${HOME}/Ascend';
+      const customPath = sanitizeField(els.installPath?.value, /^[A-Za-z0-9_.${}\/~-]+$/, '');
       const chipFromYum = document.getElementById('chipTypeYum')?.value;
       const chipFromRunfile = els.chipType?.value;
       return {
@@ -1275,10 +1298,10 @@
         installToolkit: els.installToolkit?.checked ?? true,
         installKernels: els.installKernels?.checked ?? true,
         installNnal: els.installNnal?.checked ?? false,
-        pythonVersion: els.pythonVersion?.value || '3.10',
-        condaEnv: els.condaEnv?.value || 'cann-env',
-        condaChannel: els.condaChannel?.value || 'https://repo.huaweicloud.com/ascend/cann',
-        yumRepoUrl: els.yumRepoUrl?.value || 'https://repo.huaweicloud.com/ascend/cann'
+        pythonVersion: sanitizeField(els.pythonVersion?.value, /^[0-9][0-9.]*$/, '3.10'),
+        condaEnv: sanitizeField(els.condaEnv?.value, /^[A-Za-z0-9._-]+$/, 'cann-env'),
+        condaChannel: sanitizeUrl(els.condaChannel?.value, 'https://repo.huaweicloud.com/ascend/cann'),
+        yumRepoUrl: sanitizeUrl(els.yumRepoUrl?.value, 'https://repo.huaweicloud.com/ascend/cann')
       };
     }
 
@@ -2325,9 +2348,9 @@
           cls = 'status-pending';
         }
 
-        return `<div class="check-item ${rowCls}" data-check-id="${item.id}">
-          <div class="check-status ${cls}">${icon}</div>
-          <div><div class="check-name">${item.name}</div><div class="check-detail">${detail}</div></div>
+        return `<div class="check-item ${rowCls}" data-check-id="${escapeAttr(item.id)}">
+          <div class="check-status ${cls}">${escapeHtml(icon)}</div>
+          <div><div class="check-name">${escapeHtml(item.name)}</div><div class="check-detail">${escapeHtml(detail)}</div></div>
         </div>`;
       }).join('');
 
@@ -2392,11 +2415,11 @@
       const cfg = getConfig();
       const pkgs = generatePackageList(cfg);
       let sourceText = cfg.installMethod === 'runfile'
-        ? '从 <a href="https://www.hiascend.com/software/cann/community" target="_blank">昇腾社区</a> 下载 Run 包：'
+        ? '从 <a href="https://www.hiascend.com/software/cann/community" target="_blank" rel="noopener noreferrer">昇腾社区</a> 下载 Run 包：'
         : cfg.installMethod === 'yum'
           ? 'Yum 在线安装将拉取以下组件：'
           : 'Conda 在线安装将拉取以下组件：';
-      els.packageList.innerHTML = `<p>${sourceText}</p><br>${pkgs.map((p, i) => `${i + 1}. <code>${p}</code>`).join('<br>')}<br><br><p>详细安装步骤请查看代码区 <code>${getInstallFileName(cfg.installMethod)}</code></p>`;
+      els.packageList.innerHTML = `<p>${sourceText}</p><br>${pkgs.map((p, i) => `${i + 1}. <code>${escapeHtml(p)}</code>`).join('<br>')}<br><br><p>详细安装步骤请查看代码区 <code>${escapeHtml(getInstallFileName(cfg.installMethod))}</code></p>`;
     }
 
     function updateDefaultPathHint() {
