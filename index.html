@@ -784,11 +784,8 @@
 
         <div class="sidebar-section" id="manualConfig">
           <h4>安装方式</h4>
-          <div class="install-method-tabs" id="installMethodTabs">
-            <button class="install-method-tab active" data-method="yum">在线安装 (Yum)</button>
-            <button class="install-method-tab" data-method="conda">在线安装 (Conda)</button>
-            <button class="install-method-tab" data-method="runfile">离线安装 (Runfile)</button>
-          </div>
+          <!-- 按钮由 INSTALL_METHODS 生成 -->
+          <div class="install-method-tabs" id="installMethodTabs"></div>
 
           <h4 style="margin-top:14px">环境参数</h4>
           <div class="field">
@@ -820,12 +817,8 @@
           <div class="method-panel active" id="yumOptions">
             <div class="field">
               <label>芯片型号</label>
-              <select id="chipTypeYum">
-                <option value="910b">Ascend 910B</option>
-                <option value="910">Ascend 910</option>
-                <option value="310p">Ascend 310P</option>
-                <option value="310b">Ascend 310B</option>
-              </select>
+              <!-- 选项由 CHIPS 生成 -->
+              <select id="chipTypeYum"></select>
             </div>
             <div class="field">
               <label>Yum 源地址</label>
@@ -857,12 +850,8 @@
           <div class="method-panel" id="runfileOptions">
             <div class="field">
               <label>芯片型号</label>
-              <select id="chipType">
-                <option value="910b">Ascend 910B</option>
-                <option value="910">Ascend 910</option>
-                <option value="310p">Ascend 310P</option>
-                <option value="310b">Ascend 310B</option>
-              </select>
+              <!-- 选项由 CHIPS 生成 -->
+              <select id="chipType"></select>
             </div>
             <div class="field">
               <label>安装用户</label>
@@ -927,11 +916,8 @@
           <div class="editor-tab" data-tab="verify"><span class="icon">$</span> verify_install.sh</div>
           <div class="install-method-selector" id="editorInstallMethod">
             <span class="selector-label">安装方式:</span>
-            <select id="editorMethodSelect">
-              <option value="yum">在线安装 (Yum)</option>
-              <option value="conda">在线安装 (Conda)</option>
-              <option value="runfile">离线安装 (Runfile)</option>
-            </select>
+            <!-- 选项由 INSTALL_METHODS 生成 -->
+            <select id="editorMethodSelect"></select>
           </div>
           <div class="tab-actions">
             <button class="btn btn-secondary" id="selectAllBtn">全选</button>
@@ -1286,6 +1272,28 @@
       return INSTALL_METHODS[method || state.installMethod].file;
     }
 
+    const CHIPS = [
+      { value: '910b', model: 'Ascend 910B' },
+      { value: '910', model: 'Ascend 910' },
+      { value: '310p', model: 'Ascend 310P' },
+      { value: '310b', model: 'Ascend 310B' }
+    ];
+
+    const STATUS_META = {
+      pass: { chip: 'done', line: 'result-pass', badge: 'pass', icon: '✓', dot: 'status-pass' },
+      warn: { chip: 'warn', line: 'result-warn', badge: 'warn', icon: '!', dot: 'status-warn' },
+      fail: { chip: 'fail', line: 'result-fail', badge: 'fail', icon: '✗', dot: 'status-fail' }
+    };
+
+    function statusMeta(status) {
+      return STATUS_META[status] || STATUS_META.fail;
+    }
+
+    function productModelOf(chip) {
+      const known = CHIPS.find(c => c.value === chip);
+      return known ? known.model : `Ascend ${String(chip || '').toUpperCase()}`;
+    }
+
     function scriptStep(lines, n, total, title, body) {
       lines.push('');
       lines.push('# ══════════════════════════════════════════════════════════');
@@ -1320,8 +1328,12 @@
       ];
     }
 
+    function packageManagerFor(os) {
+      return os === 'ubuntu' || os === 'debian' ? 'apt-get' : 'yum';
+    }
+
     function depInstallCommands(os) {
-      if (os === 'ubuntu' || os === 'debian') {
+      if (packageManagerFor(os) === 'apt-get') {
         return [
           'apt-get update',
           'apt-get install -y gcc g++ make cmake python3 python3-pip python3-dev',
@@ -1355,8 +1367,56 @@
       renderPackages();
     }
 
-    function chipLabel(chip) {
-      return { '910b': '910b', '910': '910', '310p': '310p', '310b': '310b' }[chip] || chip;
+    // 三种安装方式共用的参数头（编辑后由 syncParamsFromConfig 重新生成）
+    function scriptParamLines(method, cfg) {
+      return [
+        '#!/bin/bash',
+        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
+        `PRODUCT_MODEL=${productModelOf(cfg.chipType).padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
+        `CHIP_TYPE=${(cfg.chipType || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
+        `CANN_VERSION=${cfg.cannVersion}`,
+        `ARCH=${(cfg.arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
+        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
+        `INSTALL_METHOD=${method.padEnd(23)}# yum | conda | runfile`,
+        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
+        ''
+      ];
+    }
+
+    // 安装脚本骨架：参数头 → 注释 → set -e/前置命令 → 步骤一览 → 分步命令
+    // describe() 仅在需要输出步骤时调用，返回 { comments, preamble, steps }
+    function buildInstallScript(method, cfg, includeSteps, stepLimit, describe) {
+      const lines = scriptParamLines(method, cfg);
+      if (!includeSteps) {
+        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
+        return lines.join('\n');
+      }
+
+      const { comments = [], preamble = [], steps } = describe();
+      lines.push(`# CANN ${INSTALL_METHODS[method].label} — 由安装助手自动生成`);
+      comments.forEach(c => lines.push(c));
+      lines.push('');
+      lines.push('set -e');
+      preamble.forEach(l => lines.push(l));
+
+      scriptHeader(lines, method);
+
+      const shown = stepLimit !== null ? steps.slice(0, stepLimit + 1) : steps;
+      shown.forEach((step, i) => scriptStep(lines, i + 1, steps.length, step.title, step.cmds));
+
+      if (stepLimit !== null && stepLimit < steps.length - 1) {
+        lines.push('');
+        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
+      }
+
+      return lines.join('\n');
+    }
+
+    const NPU_SMI_CHECK = 'npu-smi info 2>&1 || echo "NPU 驱动检查"';
+    const ATC_CHECK = 'atc --version 2>&1 || echo "atc 检查"';
+
+    function toolkitInfoCommand(path, arch, fallback) {
+      return `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || ${fallback}`;
     }
 
     function generateCheckScript() {
@@ -1384,243 +1444,129 @@
     }
 
     function generateInstallScriptYum(cfg, includeSteps = true, stepLimit = null) {
-      const { arch, cannVersion: ver, yumRepoUrl, chipType } = cfg;
-      const chip = chipLabel(chipType);
-      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
-      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
+      const { arch, cannVersion: ver, yumRepoUrl, chipType: chip } = cfg;
       const repoBase = `${yumRepoUrl}/${ver}/yum/${arch}`;
-      const total = 6;
-      const lines = [
-        '#!/bin/bash',
-        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
-        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
-        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
-        `CANN_VERSION=${ver}`,
-        `ARCH=${(arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
-        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
-        `INSTALL_METHOD=yum                    # yum | conda | runfile`,
-        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
-        ''
-      ];
-      
-      if (!includeSteps) {
-        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
-        return lines.join('\n');
-      }
-      
-      lines.push('# CANN 在线安装 (Yum) — 由安装助手自动生成');
-      lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
-      lines.push('');
-      lines.push('set -e');
-      
-      scriptHeader(lines, 'yum');
 
-      const allSteps = [
-        { title: '安装 shadow 工具包', cmds: ['yum install -y shadow-utils passwd'] },
-        { title: '配置用户属组', cmds: userGroupCommands() },
-        { title: '安装依赖 & 配源', cmds: [
-            `cat > /etc/yum.repos.d/ascend-cann.repo << EOF`,
-            `[ascend-cann]`,
-            `name=Ascend CANN ${ver}`,
-            `baseurl=${repoBase}`,
-            `enabled=1`,
-            `gpgcheck=0`,
-            `EOF`,
-            'yum clean all && yum makecache',
-            ...depInstallCommands('centos')
-          ]},
-        { title: '安装 NPU 驱动', cmds: [
-            `yum install -y ascend-npu-driver-${chip} 2>/dev/null || yum install -y ascend-driver-${ver}`,
-            'npu-smi info 2>&1 || echo "驱动安装完成，请重启后验证"'
-          ]},
-        { title: '安装 Toolkit', cmds: [
-            `yum install -y ascend-toolkit-${ver}`,
-            'source /usr/local/Ascend/ascend-toolkit/set_env.sh'
-          ]},
-        { title: '安装后验证', cmds: [
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'atc --version 2>&1 || echo "atc 检查"',
-            `cat /usr/local/Ascend/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || true`,
-            'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 验证"',
-            'echo "✅ CANN Yum 在线安装完成！"'
-          ]}
-      ];
-
-      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
-      
-      stepsToShow.forEach((step, i) => {
-        const actualIndex = i + 1;
-        scriptStep(lines, actualIndex, total, step.title, step.cmds);
-      });
-
-      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
-        lines.push('');
-        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
-      }
-      
-      return lines.join('\n');
+      return buildInstallScript('yum', cfg, includeSteps, stepLimit, () => ({
+        comments: [`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`],
+        steps: [
+          { title: '安装 shadow 工具包', cmds: ['yum install -y shadow-utils passwd'] },
+          { title: '配置用户属组', cmds: userGroupCommands() },
+          { title: '安装依赖 & 配源', cmds: [
+              `cat > /etc/yum.repos.d/ascend-cann.repo << EOF`,
+              `[ascend-cann]`,
+              `name=Ascend CANN ${ver}`,
+              `baseurl=${repoBase}`,
+              `enabled=1`,
+              `gpgcheck=0`,
+              `EOF`,
+              'yum clean all && yum makecache',
+              ...depInstallCommands('centos')
+            ]},
+          { title: '安装 NPU 驱动', cmds: [
+              `yum install -y ascend-npu-driver-${chip} 2>/dev/null || yum install -y ascend-driver-${ver}`,
+              'npu-smi info 2>&1 || echo "驱动安装完成，请重启后验证"'
+            ]},
+          { title: '安装 Toolkit', cmds: [
+              `yum install -y ascend-toolkit-${ver}`,
+              'source /usr/local/Ascend/ascend-toolkit/set_env.sh'
+            ]},
+          { title: '安装后验证', cmds: [
+              NPU_SMI_CHECK,
+              ATC_CHECK,
+              toolkitInfoCommand('/usr/local/Ascend', arch, 'true'),
+              'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 验证"',
+              'echo "✅ CANN Yum 在线安装完成！"'
+            ]}
+        ]
+      }));
     }
 
     function generateInstallScriptConda(cfg, includeSteps = true, stepLimit = null) {
       const { cannVersion: ver, pythonVersion: py, condaEnv, condaChannel } = cfg;
-      const chip = chipLabel(cfg.chipType);
-      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
-      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
-      const total = 3;
-      const lines = [
-        '#!/bin/bash',
-        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
-        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
-        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
-        `CANN_VERSION=${ver}`,
-        `ARCH=${(cfg.arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
-        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
-        `INSTALL_METHOD=conda                  # yum | conda | runfile`,
-        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
-        ''
-      ];
-      
-      if (!includeSteps) {
-        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
-        return lines.join('\n');
+
+      return buildInstallScript('conda', cfg, includeSteps, stepLimit, () => ({
+        comments: [`# CANN: ${ver} | Python: ${py} | 环境: ${condaEnv}`],
+        steps: [
+          { title: 'Python 版本选择', cmds: [
+              `conda create -n ${condaEnv} python=${py} -y`,
+              `source "$(conda info --base)/etc/profile.d/conda.sh"`,
+              `conda activate ${condaEnv}`,
+              'python --version'
+            ]},
+          { title: '安装 Toolkit', cmds: [
+              `conda config --add channels ${condaChannel}`,
+              `conda install -y -n ${condaEnv} cann-toolkit=${ver}`,
+              `conda activate ${condaEnv}`,
+              'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true'
+            ]},
+          { title: '安装后验证', cmds: [
+              `conda activate ${condaEnv}`,
+              NPU_SMI_CHECK,
+              'python -c "import acl; print(acl.__file__)" 2>&1 || echo "ACL 模块验证"',
+              ATC_CHECK,
+              'echo "✅ CANN Conda 在线安装完成！"',
+              `echo "使用: conda activate ${condaEnv}"`
+            ]}
+        ]
+      }));
+    }
+
+    function runfileCannCommands(cfg) {
+      const { arch, cannVersion: ver, chipType: chip, installPath: path, userType, driverScene } = cfg;
+      const sudo = userType === 'root' ? 'sudo ' : '';
+      const cmds = [];
+
+      if (cfg.installDriver) {
+        const driver = `Ascend-hdk-${chip}-npu-driver_*.run`;
+        const firmware = `Ascend-hdk-${chip}-npu-firmware_*.run`;
+        const firstIsDriver = driverScene === 'first';
+        cmds.push(`chmod +x ${firstIsDriver ? `${driver} ${firmware}` : `${firmware} ${driver}`}`);
+        cmds.push(firstIsDriver ? `./${driver} --full --install-for-all` : `./${firmware} --full`);
+        cmds.push(firstIsDriver ? `./${firmware} --full` : `./${driver} --full --install-for-all`);
+        cmds.push('npu-smi info 2>&1 || true');
       }
-      
-      lines.push('# CANN 在线安装 (Conda) — 由安装助手自动生成');
-      lines.push(`# CANN: ${ver} | Python: ${py} | 环境: ${condaEnv}`);
-      lines.push('');
-      lines.push('set -e');
-      
-      scriptHeader(lines, 'conda');
-
-      const allSteps = [
-        { title: 'Python 版本选择', cmds: [
-            `conda create -n ${condaEnv} python=${py} -y`,
-            `source "$(conda info --base)/etc/profile.d/conda.sh"`,
-            `conda activate ${condaEnv}`,
-            'python --version'
-          ]},
-        { title: '安装 Toolkit', cmds: [
-            `conda config --add channels ${condaChannel}`,
-            `conda install -y -n ${condaEnv} cann-toolkit=${ver}`,
-            `conda activate ${condaEnv}`,
-            'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true'
-          ]},
-        { title: '安装后验证', cmds: [
-            `conda activate ${condaEnv}`,
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'python -c "import acl; print(acl.__file__)" 2>&1 || echo "ACL 模块验证"',
-            'atc --version 2>&1 || echo "atc 检查"',
-            'echo "✅ CANN Conda 在线安装完成！"',
-            `echo "使用: conda activate ${condaEnv}"`
-          ]}
-      ];
-
-      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
-      
-      stepsToShow.forEach((step, i) => {
-        const actualIndex = i + 1;
-        scriptStep(lines, actualIndex, total, step.title, step.cmds);
+      if (cfg.installToolkit) {
+        const toolkit = `Ascend-cann-toolkit_${ver}_linux-${arch}.run`;
+        cmds.push(`chmod +x ${toolkit}`);
+        cmds.push(`./${toolkit} --check`);
+        cmds.push(`${sudo}./${toolkit} --install`);
+      }
+      [
+        cfg.installKernels && `Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run`,
+        cfg.installNnal && `Ascend-cann-nnal_${ver}_linux-${arch}.run`
+      ].filter(Boolean).forEach(pkg => {
+        cmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
+        cmds.push(`chmod +x ${pkg}`);
+        cmds.push(`./${pkg} --install`);
       });
 
-      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
-        lines.push('');
-        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
-      }
-      
-      return lines.join('\n');
+      cmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
+      if (cfg.installNnal) cmds.push(`source ${path}/nnal/atb/set_env.sh`);
+      return cmds;
     }
 
     function generateInstallScriptRunfile(cfg, includeSteps = true, stepLimit = null) {
-      const { arch, cannVersion: ver, chipType, installPath: path, userType, driverScene } = cfg;
-      const chip = chipLabel(chipType);
-      const isRoot = userType === 'root';
-      const sudo = isRoot ? 'sudo ' : '';
-      const total = 4;
-      const productModelMap = { '910b': 'Ascend 910B', '910': 'Ascend 910', '310p': 'Ascend 310P', '310b': 'Ascend 310B' };
-      const productModel = productModelMap[chip] || `Ascend ${chip.toUpperCase()}`;
-      const lines = [
-        '#!/bin/bash',
-        '# ===== 安装参数（编辑后自动刷新下方命令） =====',
-        `PRODUCT_MODEL=${(productModel || '').padEnd(12)}   # 产品型号: Ascend 910B / Ascend 910 / Ascend 310P / Ascend 310B`,
-        `CHIP_TYPE=${(chip || '').padEnd(7)}     # 芯片代号: 910b | 910 | 310p | 310b`,
-        `CANN_VERSION=${ver}`,
-        `ARCH=${(arch || '').padEnd(10)}        # CPU 架构: x86_64 | aarch64`,
-        `OS=${(cfg.os || '').padEnd(8)}        # 操作系统: ubuntu | centos | debian`,
-        `INSTALL_METHOD=runfile                # yum | conda | runfile`,
-        '# ===== 参数结束 - 下方命令随参数自动更新 =====',
-        ''
-      ];
-      
-      if (!includeSteps) {
-        lines.push('# 运行「环境检查」后将自动生成完整安装步骤');
-        return lines.join('\n');
-      }
-      
-      lines.push('# CANN 离线安装 (Runfile) — 由安装助手自动生成');
-      lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
-      lines.push(`# 安装路径: ${path}`);
-      lines.push('');
-      lines.push('set -e');
-      lines.push('cd "$(dirname "$0")"');
-      
-      scriptHeader(lines, 'runfile');
+      const { arch, cannVersion: ver, chipType: chip, installPath: path } = cfg;
 
-      const cannStepCmds = [];
-      if (cfg.installDriver) {
-        if (driverScene === 'first') {
-          cannStepCmds.push(`chmod +x Ascend-hdk-${chip}-npu-driver_*.run Ascend-hdk-${chip}-npu-firmware_*.run`);
-          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-driver_*.run --full --install-for-all`);
-          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-firmware_*.run --full`);
-        } else {
-          cannStepCmds.push(`chmod +x Ascend-hdk-${chip}-npu-firmware_*.run Ascend-hdk-${chip}-npu-driver_*.run`);
-          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-firmware_*.run --full`);
-          cannStepCmds.push(`./Ascend-hdk-${chip}-npu-driver_*.run --full --install-for-all`);
-        }
-        cannStepCmds.push('npu-smi info 2>&1 || true');
-      }
-      if (cfg.installToolkit) {
-        cannStepCmds.push(`chmod +x Ascend-cann-toolkit_${ver}_linux-${arch}.run`);
-        cannStepCmds.push(`./Ascend-cann-toolkit_${ver}_linux-${arch}.run --check`);
-        cannStepCmds.push(isRoot ? `${sudo}./Ascend-cann-toolkit_${ver}_linux-${arch}.run --install` : `./Ascend-cann-toolkit_${ver}_linux-${arch}.run --install`);
-      }
-      if (cfg.installKernels) {
-        cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
-        cannStepCmds.push(`chmod +x Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run`);
-        cannStepCmds.push(`./Ascend-cann-kernels-${chip}_${ver}_linux-${arch}.run --install`);
-      }
-      if (cfg.installNnal) {
-        cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
-        cannStepCmds.push(`chmod +x Ascend-cann-nnal_${ver}_linux-${arch}.run`);
-        cannStepCmds.push(`./Ascend-cann-nnal_${ver}_linux-${arch}.run --install`);
-      }
-      cannStepCmds.push(`source ${path}/ascend-toolkit/set_env.sh`);
-      if (cfg.installNnal) cannStepCmds.push(`source ${path}/nnal/atb/set_env.sh`);
-
-      const allSteps = [
-        { title: '配置用户属组', cmds: userGroupCommands() },
-        { title: '安装依赖', cmds: depInstallCommands(cfg.os) },
-        { title: '安装驱动 & Toolkit', cmds: cannStepCmds },
-        { title: '安装后验证', cmds: [
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'atc --version 2>&1 || echo "atc 检查"',
-            `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "安装信息"`,
-            'echo "✅ CANN Runfile 离线安装完成！"'
-          ]}
-      ];
-
-      const stepsToShow = stepLimit !== null ? allSteps.slice(0, stepLimit + 1) : allSteps;
-      
-      stepsToShow.forEach((step, i) => {
-        const actualIndex = i + 1;
-        scriptStep(lines, actualIndex, total, step.title, step.cmds);
-      });
-
-      if (stepLimit !== null && stepLimit < allSteps.length - 1) {
-        lines.push('');
-        lines.push('# ⏳ 等待用户操作... (执行/跳过/修改后自动继续)');
-      }
-      
-      return lines.join('\n');
+      return buildInstallScript('runfile', cfg, includeSteps, stepLimit, () => ({
+        comments: [
+          `# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`,
+          `# 安装路径: ${path}`
+        ],
+        preamble: ['cd "$(dirname "$0")"'],
+        steps: [
+          { title: '配置用户属组', cmds: userGroupCommands() },
+          { title: '安装依赖', cmds: depInstallCommands(cfg.os) },
+          { title: '安装驱动 & Toolkit', cmds: runfileCannCommands(cfg) },
+          { title: '安装后验证', cmds: [
+              NPU_SMI_CHECK,
+              ATC_CHECK,
+              toolkitInfoCommand(path, arch, 'echo "安装信息"'),
+              'echo "✅ CANN Runfile 离线安装完成！"'
+            ]}
+        ]
+      }));
     }
 
     function generateInstallScript(cfg, stepLimit = null) {
@@ -1669,7 +1615,7 @@
         '',
         'echo "=== NPU 驱动 ==="', 'npu-smi info 2>&1 || echo "驱动未就绪"',
         'echo ""', 'echo "=== Toolkit 版本 ==="',
-        `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "信息文件不存在"`,
+        toolkitInfoCommand(path, arch, 'echo "信息文件不存在"'),
         'echo ""', 'echo "=== 开发工具 ==="', 'atc --version 2>&1 || echo "atc 不可用"',
         'echo ""', 'echo "=== 环境变量 ==="', 'env | grep -i ASCEND || echo "未检测到"',
         'echo ""', 'echo "=== Python ACL ==="',
@@ -1678,8 +1624,7 @@
     }
 
     function generatePackageList(cfg) {
-      const { arch, cannVersion: ver, chipType, installMethod } = cfg;
-      const chip = chipLabel(chipType);
+      const { arch, cannVersion: ver, chipType: chip, installMethod } = cfg;
       const pkgs = [];
 
       if (installMethod === 'yum') {
@@ -1862,14 +1807,6 @@
       });
     }
 
-    function appendTerminal(text, cls) {
-      appendTermText(text, cls);
-    }
-
-    function appendTerminalHtml(html) {
-      appendTermLine(html);
-    }
-
     async function simulateCheckRun() {
       if (state.isRunning) return;
       els.sidebar.classList.add('collapsed');
@@ -1903,15 +1840,14 @@
         await sleep(150);
         appendTermText(`>>> ${step.cmd}`, 'cmd-line');
 
+        const meta = statusMeta(step.status);
         for (const line of step.lines) {
           await sleep(80 + Math.random() * 60);
-          const resultCls = step.status === 'pass' ? 'result-pass' : step.status === 'warn' ? 'result-warn' : 'result-fail';
-          appendTermText(line, resultCls);
+          appendTermText(line, meta.line);
         }
 
-        const badgeCls = step.status === 'pass' ? 'pass' : step.status === 'warn' ? 'warn' : 'fail';
-        appendTermLine(`<span class="term-badge ${badgeCls}">${step.badge}</span> ${step.name} 检查完成`);
-        updateChip(step.id, step.status === 'pass' ? 'done' : step.status === 'warn' ? 'warn' : 'fail');
+        appendTermLine(`<span class="term-badge ${meta.badge}">${step.badge}</span> ${step.name} 检查完成`);
+        updateChip(step.id, meta.chip);
 
         const partial = {};
         CHECK_STEPS.slice(0, i + 1).forEach(s => {
@@ -1942,8 +1878,7 @@
 
     function getInstallPhases(cfg) {
       const steps = INSTALL_METHODS[cfg.installMethod].steps;
-      const chip = chipLabel(cfg.chipType);
-      const { arch, cannVersion: ver } = cfg;
+      const { arch, cannVersion: ver, chipType: chip } = cfg;
 
       if (cfg.installMethod === 'yum') {
         return [
@@ -2083,181 +2018,97 @@
       }
     }
 
+    // 自然语言 → 命令：精确匹配表，值为命令字符串或 pkg => 命令
+    const NL_EXACT_COMMANDS = {
+      '更新系统': pkg => `${pkg} update -y`,
+      '更新软件包': pkg => `${pkg} upgrade -y`,
+      '清理缓存': pkg => `${pkg} clean all && ${pkg === 'yum' ? 'yum makecache' : 'apt-get update'}`,
+      '安装依赖': pkg => `${pkg} install -y gcc gcc-c++ cmake python3-devel`,
+      '安装docker': pkg => `${pkg} install -y docker`,
+      '安装npu驱动': pkg => `${pkg} install -y ascend-npu-driver`,
+      '安装toolkit': pkg => `${pkg} install -y ascend-toolkit`,
+      '安装pip': 'pip3 install --upgrade pip',
+      '查看目录': 'ls -la',
+      '查看进程': 'ps aux',
+      '查看内存': 'free -h',
+      '查看磁盘': 'df -h',
+      '查看CPU': 'top -bn1 | head -5',
+      '查看版本': 'cat /etc/os-release',
+      '查看内核': 'uname -r',
+      '查看架构': 'uname -m',
+      '查看网络': 'ifconfig || ip addr',
+      '查看环境变量': 'env | grep -i ASCEND',
+      '查看docker版本': 'docker --version',
+      '查看conda环境': 'conda env list',
+      '启动docker': 'systemctl start docker && systemctl enable docker',
+      '重启系统': 'reboot',
+      '关闭系统': 'shutdown -h now',
+      '关闭防火墙': 'systemctl stop firewalld && systemctl disable firewalld',
+      '同步时间': 'ntpdate time.nist.gov',
+      '检查npu状态': 'npu-smi info',
+      '检查toolkit版本': 'atc --version',
+      '配置环境变量': 'source /usr/local/Ascend/ascend-toolkit/set_env.sh',
+      '测试acl': 'python3 -c "import acl; print(acl)"',
+      '验证安装': 'npu-smi info && atc --version'
+    };
+
+    // 自然语言 → 命令：前缀匹配表，「前缀 + 参数」形式，按前缀长度从长到短匹配
+    const NL_PREFIX_COMMANDS = {
+      '安装python包': arg => `pip3 install ${arg}`,
+      '安装conda包': arg => `conda install -y ${arg}`,
+      '安装': (arg, pkg) => `${pkg} install -y ${arg}`,
+      '卸载': (arg, pkg) => `${pkg} remove -y ${arg}`,
+      '创建用户组': arg => `groupadd ${arg}`,
+      '创建用户': arg => `useradd ${arg}`,
+      '删除用户组': arg => `groupdel ${arg}`,
+      '删除用户': arg => `userdel ${arg}`,
+      '切换目录': arg => `cd ${arg}`,
+      '创建目录': arg => `mkdir -p ${arg}`,
+      '删除目录': arg => `rm -rf ${arg}`,
+      '查看文件': arg => `cat ${arg}`,
+      '编辑文件': arg => `vim ${arg}`,
+      '查看日志': arg => `tail -f ${arg || '/var/log/messages'}`,
+      '重启服务': arg => `systemctl restart ${arg}`,
+      '启动服务': arg => `systemctl start ${arg}`,
+      '停止服务': arg => `systemctl stop ${arg}`,
+      '设置开机自启': arg => `systemctl enable ${arg}`,
+      '检查服务状态': arg => `systemctl status ${arg}`,
+      '创建conda环境': arg => `conda create -n ${arg} python=3.8 -y`,
+      '激活conda环境': arg => `conda activate ${arg}`,
+      '删除conda环境': arg => `conda env remove -n ${arg} -y`,
+      '下载文件': arg => `wget ${arg}`,
+      '解压文件': arg => `tar -xzf ${arg}`,
+      '压缩文件': arg => `tar -czf ${arg}.tar.gz ${arg}`,
+      '查找文件': arg => `find / -name "${arg}" 2>/dev/null`,
+      '搜索内容': arg => `grep -r "${arg}" .`,
+      '测试网络': arg => `ping -c 3 ${arg}`,
+      '查看端口': arg => `netstat -tlnp | grep ${arg}`,
+      '开放端口': arg => `firewall-cmd --add-port=${arg}/tcp --permanent && firewall-cmd --reload`,
+      // 「<目标>为<值>」形式，缺少「为」时不匹配
+      '修改权限': arg => {
+        const [target, mode] = arg.split('为');
+        return mode ? `chmod ${mode.trim()} ${target.trim()}` : null;
+      },
+      '修改所有者': arg => {
+        const [target, owner] = arg.split('为');
+        return owner ? `chown ${owner.trim()} ${target.trim()}` : null;
+      }
+    };
+
+    const NL_PREFIXES = Object.keys(NL_PREFIX_COMMANDS).sort((a, b) => b.length - a.length);
+
     function naturalToCommand(input) {
       input = input.trim();
-      console.log('naturalToCommand input:', input);
-      
-      let pkgMgr = 'yum';
-      if (installState && installState.cfg) {
-        const os = installState.cfg.os || 'centos';
-        pkgMgr = os === 'ubuntu' || os === 'debian' ? 'apt-get' : 'yum';
+      const pkg = packageManagerFor(installState && installState.cfg ? installState.cfg.os : 'centos');
+
+      const exact = NL_EXACT_COMMANDS[input];
+      if (exact) return typeof exact === 'function' ? exact(pkg) : exact;
+
+      for (const prefix of NL_PREFIXES) {
+        if (input.indexOf(prefix) !== 0) continue;
+        const cmd = NL_PREFIX_COMMANDS[prefix](input.slice(prefix.length).trim(), pkg);
+        if (cmd) return cmd;
       }
-      
-      if (input.indexOf('安装') === 0) {
-        const pkg = input.substring(2).trim();
-        return `${pkgMgr} install -y ${pkg}`;
-      }
-      if (input.indexOf('卸载') === 0) {
-        const pkg = input.substring(2).trim();
-        return `${pkgMgr} remove -y ${pkg}`;
-      }
-      if (input === '更新系统') return `${pkgMgr} update -y`;
-      if (input === '更新软件包') return `${pkgMgr} upgrade -y`;
-      if (input === '查看目录') return 'ls -la';
-      if (input === '查看进程') return 'ps aux';
-      if (input === '查看内存') return 'free -h';
-      if (input === '查看磁盘') return 'df -h';
-      if (input === '查看CPU') return 'top -bn1 | head -5';
-      if (input === '重启系统') return 'reboot';
-      if (input === '关闭系统') return 'shutdown -h now';
-      if (input === '清理缓存') return `${pkgMgr} clean all && ${pkgMgr === 'yum' ? 'yum makecache' : 'apt-get update'}`;
-      if (input === '安装依赖') return `${pkgMgr} install -y gcc gcc-c++ cmake python3-devel`;
-      if (input === '安装pip') return 'pip3 install --upgrade pip';
-      if (input === '查看版本') return 'cat /etc/os-release';
-      if (input === '查看内核') return 'uname -r';
-      if (input === '查看架构') return 'uname -m';
-      if (input === '查看网络') return 'ifconfig || ip addr';
-      if (input === '安装docker') return `${pkgMgr} install -y docker`;
-      if (input === '启动docker') return 'systemctl start docker && systemctl enable docker';
-      if (input === '查看docker版本') return 'docker --version';
-      if (input === '查看conda环境') return 'conda env list';
-      if (input === '安装npu驱动') return `${pkgMgr} install -y ascend-npu-driver`;
-      if (input === '安装toolkit') return `${pkgMgr} install -y ascend-toolkit`;
-      if (input === '检查npu状态') return 'npu-smi info';
-      if (input === '检查toolkit版本') return 'atc --version';
-      if (input === '配置环境变量') return 'source /usr/local/Ascend/ascend-toolkit/set_env.sh';
-      if (input === '查看环境变量') return 'env | grep -i ASCEND';
-      if (input === '测试acl') return 'python3 -c "import acl; print(acl)"';
-      if (input === '验证安装') return 'npu-smi info && atc --version';
-      if (input === '同步时间') return 'ntpdate time.nist.gov';
-      if (input === '关闭防火墙') return 'systemctl stop firewalld && systemctl disable firewalld';
-      
-      if (input.indexOf('创建用户') === 0) {
-        const user = input.substring(4).trim();
-        return `useradd ${user}`;
-      }
-      if (input.indexOf('创建用户组') === 0) {
-        const group = input.substring(5).trim();
-        return `groupadd ${group}`;
-      }
-      if (input.indexOf('删除用户') === 0) {
-        const user = input.substring(4).trim();
-        return `userdel ${user}`;
-      }
-      if (input.indexOf('删除用户组') === 0) {
-        const group = input.substring(5).trim();
-        return `groupdel ${group}`;
-      }
-      if (input.indexOf('切换目录') === 0) {
-        const dir = input.substring(4).trim();
-        return `cd ${dir}`;
-      }
-      if (input.indexOf('创建目录') === 0) {
-        const dir = input.substring(4).trim();
-        return `mkdir -p ${dir}`;
-      }
-      if (input.indexOf('删除目录') === 0) {
-        const dir = input.substring(4).trim();
-        return `rm -rf ${dir}`;
-      }
-      if (input.indexOf('查看文件') === 0) {
-        const file = input.substring(4).trim();
-        return `cat ${file}`;
-      }
-      if (input.indexOf('编辑文件') === 0) {
-        const file = input.substring(4).trim();
-        return `vim ${file}`;
-      }
-      if (input.indexOf('重启服务') === 0) {
-        const service = input.substring(4).trim();
-        return `systemctl restart ${service}`;
-      }
-      if (input.indexOf('启动服务') === 0) {
-        const service = input.substring(4).trim();
-        return `systemctl start ${service}`;
-      }
-      if (input.indexOf('停止服务') === 0) {
-        const service = input.substring(4).trim();
-        return `systemctl stop ${service}`;
-      }
-      if (input.indexOf('设置开机自启') === 0) {
-        const service = input.substring(5).trim();
-        return `systemctl enable ${service}`;
-      }
-      if (input.indexOf('检查服务状态') === 0) {
-        const service = input.substring(5).trim();
-        return `systemctl status ${service}`;
-      }
-      if (input.indexOf('查看日志') === 0) {
-        const file = input.substring(4).trim();
-        return `tail -f ${file || '/var/log/messages'}`;
-      }
-      if (input.indexOf('安装python包') === 0) {
-        const pkg = input.substring(6).trim();
-        return `pip3 install ${pkg}`;
-      }
-      if (input.indexOf('创建conda环境') === 0) {
-        const name = input.substring(6).trim();
-        return `conda create -n ${name} python=3.8 -y`;
-      }
-      if (input.indexOf('激活conda环境') === 0) {
-        const name = input.substring(6).trim();
-        return `conda activate ${name}`;
-      }
-      if (input.indexOf('安装conda包') === 0) {
-        const pkg = input.substring(6).trim();
-        return `conda install -y ${pkg}`;
-      }
-      if (input.indexOf('删除conda环境') === 0) {
-        const name = input.substring(6).trim();
-        return `conda env remove -n ${name} -y`;
-      }
-      if (input.indexOf('下载文件') === 0) {
-        const url = input.substring(4).trim();
-        return `wget ${url}`;
-      }
-      if (input.indexOf('解压文件') === 0) {
-        const file = input.substring(4).trim();
-        return `tar -xzf ${file}`;
-      }
-      if (input.indexOf('压缩文件') === 0) {
-        const file = input.substring(4).trim();
-        return `tar -czf ${file}.tar.gz ${file}`;
-      }
-      if (input.indexOf('查找文件') === 0) {
-        const name = input.substring(4).trim();
-        return `find / -name "${name}" 2>/dev/null`;
-      }
-      if (input.indexOf('搜索内容') === 0) {
-        const content = input.substring(4).trim();
-        return `grep -r "${content}" .`;
-      }
-      if (input.indexOf('测试网络') === 0) {
-        const host = input.substring(4).trim();
-        return `ping -c 3 ${host}`;
-      }
-      if (input.indexOf('查看端口') === 0) {
-        const port = input.substring(4).trim();
-        return `netstat -tlnp | grep ${port}`;
-      }
-      if (input.indexOf('开放端口') === 0) {
-        const port = input.substring(4).trim();
-        return `firewall-cmd --add-port=${port}/tcp --permanent && firewall-cmd --reload`;
-      }
-      if (input.indexOf('修改权限') === 0) {
-        const parts = input.substring(4).split('为');
-        if (parts.length === 2) {
-          return `chmod ${parts[1].trim()} ${parts[0].trim()}`;
-        }
-      }
-      if (input.indexOf('修改所有者') === 0) {
-        const parts = input.substring(5).split('为');
-        if (parts.length === 2) {
-          return `chown ${parts[1].trim()} ${parts[0].trim()}`;
-        }
-      }
-      
-      console.log('naturalToCommand no match, return original');
       return input;
     }
 
@@ -2313,17 +2164,11 @@
       els.checkItems.innerHTML = CHECK_STEPS.map(item => {
         const r = results[item.id];
         const isRunning = runningId === item.id;
-        const isDone = !!r;
-        let cls = 'status-pending', icon = isRunning ? '◌' : '?', detail = isRunning ? '正在检查...' : '等待检查';
-        let rowCls = isRunning ? 'check-running' : isDone ? 'check-done' : 'check-pending';
-
-        if (r) {
-          cls = r.status === 'pass' ? 'status-pass' : r.status === 'warn' ? 'status-warn' : 'status-fail';
-          icon = r.status === 'pass' ? '✓' : r.status === 'warn' ? '!' : '✗';
-          detail = r.detail;
-        } else if (isRunning) {
-          cls = 'status-pending';
-        }
+        const meta = r ? statusMeta(r.status) : null;
+        const cls = meta ? meta.dot : 'status-pending';
+        const icon = meta ? meta.icon : (isRunning ? '◌' : '?');
+        const detail = meta ? r.detail : (isRunning ? '正在检查...' : '等待检查');
+        const rowCls = isRunning ? 'check-running' : r ? 'check-done' : 'check-pending';
 
         return `<div class="check-item ${rowCls}" data-check-id="${item.id}">
           <div class="check-status ${cls}">${icon}</div>
@@ -2411,6 +2256,27 @@
       el.addEventListener('change', handler);
       el.addEventListener('input', handler);
     }
+
+    function fillSelect(select, options, selected) {
+      if (!select) return;
+      select.innerHTML = options.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+      select.value = selected;
+    }
+
+    // 芯片与安装方式列表只在 CHIPS / INSTALL_METHODS 中维护，避免多处 <option> 重复
+    function renderChoiceControls() {
+      const chipOptions = CHIPS.map(c => ({ value: c.value, label: c.model }));
+      fillSelect(els.chipType, chipOptions, chipOptions[0].value);
+      fillSelect(document.getElementById('chipTypeYum'), chipOptions, chipOptions[0].value);
+
+      const methodOptions = Object.keys(INSTALL_METHODS).map(value => ({ value, label: INSTALL_METHODS[value].label }));
+      fillSelect(els.editorMethodSelect, methodOptions, state.installMethod);
+      document.getElementById('installMethodTabs').innerHTML = methodOptions.map(o =>
+        `<button class="install-method-tab" data-method="${o.value}">${o.label}</button>`
+      ).join('');
+    }
+
+    renderChoiceControls();
 
     // Events
     document.querySelectorAll('.editor-tab, .tree-item').forEach(tab => {
