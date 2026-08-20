@@ -1156,6 +1156,20 @@
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+    function reportError(context, err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[cann-installer] ${context}:`, err);
+      if (els.terminal) appendTermText(`✗ ${context}失败: ${message}`, 'result-fail');
+      if (els.toast) showToast(`${context}失败: ${message}`);
+      return message;
+    }
+
+    function installMethodMeta(method) {
+      const meta = INSTALL_METHODS[method];
+      if (!meta) throw new Error(`未知安装方式: ${method}`);
+      return meta;
+    }
+
     function setRunning(running, btn) {
       state.isRunning = running;
       els.runCheckBtn.disabled = running;
@@ -1283,7 +1297,7 @@
     }
 
     function getInstallFileName(method) {
-      return INSTALL_METHODS[method || state.installMethod].file;
+      return installMethodMeta(method || state.installMethod).file;
     }
 
     function scriptStep(lines, n, total, title, body) {
@@ -1300,23 +1314,54 @@
     }
 
     function getInstallTabLabel() {
-      const meta = INSTALL_METHODS[state.installMethod];
+      const meta = installMethodMeta(state.installMethod);
       return `${tabFiles.install} — ${meta.label}（${meta.steps.length} 步，见下方命令）`;
     }
 
     function scriptHeader(lines, method) {
-      const meta = INSTALL_METHODS[method];
+      const meta = installMethodMeta(method);
       lines.push(`# 安装步骤一览（共 ${meta.steps.length} 步）:`);
       meta.steps.forEach((s, i) => lines.push(`#   ${i + 1}. ${s}`));
       lines.push('');
     }
 
+    function scriptFailFast(lines) {
+      lines.push('set -Eeo pipefail');
+      lines.push(`trap 'rc=$?; echo "❌ 失败: 第 $LINENO 行 \\"$BASH_COMMAND\\" 退出码 $rc" >&2; exit $rc' ERR`);
+    }
+
+    // 生成带失败计数的验证块：任一项失败则以非零退出码结束
+    function verifyCommands(items) {
+      const lines = ['verify_failed=0'];
+      items.forEach(item => {
+        lines.push(`if ${item.cmd}; then`);
+        lines.push(`  echo "✓ ${item.label}"`);
+        lines.push('else');
+        lines.push(`  echo "✗ ${item.label} 验证失败（退出码 $?）" >&2`);
+        lines.push('  verify_failed=$((verify_failed + 1))');
+        lines.push('fi');
+      });
+      lines.push('if [ "$verify_failed" -ne 0 ]; then');
+      lines.push('  echo "❌ 验证未通过：$verify_failed 项失败" >&2');
+      lines.push('  exit 1');
+      lines.push('fi');
+      return lines;
+    }
+
     function userGroupCommands() {
       return [
-        'groupadd HwHiAiUser 2>/dev/null || true',
-        'useradd -g HwHiAiUser -d /home/HwHiAiUser -m HwHiAiUser 2>/dev/null || true',
-        'chmod 750 /home/HwHiAiUser 2>/dev/null || true',
-        'id HwHiAiUser 2>/dev/null || echo "用户 HwHiAiUser 已就绪"'
+        'if getent group HwHiAiUser >/dev/null; then',
+        '  echo "用户组 HwHiAiUser 已存在"',
+        'else',
+        '  groupadd HwHiAiUser || { echo "❌ 创建用户组 HwHiAiUser 失败（是否缺少 root 权限？）" >&2; exit 1; }',
+        'fi',
+        'if id HwHiAiUser >/dev/null 2>&1; then',
+        '  echo "用户 HwHiAiUser 已存在"',
+        'else',
+        '  useradd -g HwHiAiUser -d /home/HwHiAiUser -m HwHiAiUser || { echo "❌ 创建用户 HwHiAiUser 失败" >&2; exit 1; }',
+        'fi',
+        'chmod 750 /home/HwHiAiUser || { echo "❌ 设置 /home/HwHiAiUser 权限失败" >&2; exit 1; }',
+        'id HwHiAiUser'
       ];
     }
 
@@ -1325,18 +1370,19 @@
         return [
           'apt-get update',
           'apt-get install -y gcc g++ make cmake python3 python3-pip python3-dev',
-          'apt-get install -y unzip patch libgl1-mesa-glx 2>/dev/null || true'
+          'apt-get install -y unzip patch libgl1-mesa-glx || echo "⚠ 可选依赖（unzip/patch/libgl1-mesa-glx）安装失败，继续安装" >&2'
         ];
       }
       return [
         'yum install -y gcc gcc-c++ make cmake unzip patch',
         'yum install -y python3 python3-devel python3-pip',
-        'yum install -y dos2unix llvm openblas-devel 2>/dev/null || true'
+        'yum install -y dos2unix llvm openblas-devel || echo "⚠ 可选依赖（dos2unix/llvm/openblas-devel）安装失败，继续安装" >&2'
       ];
     }
 
     function updateInstallMethodUI(refreshInstall) {
       const method = state.installMethod;
+      installMethodMeta(method);
       document.querySelectorAll('.install-method-tab').forEach(t =>
         t.classList.toggle('active', t.dataset.method === method)
       );
@@ -1349,7 +1395,7 @@
       document.querySelector('.tree-item[data-tab="install"] .tree-label').textContent = installFile;
       tabFiles.install = installFile;
 
-      els.statusMode.textContent = `安装: ${INSTALL_METHODS[method].label}`;
+      els.statusMode.textContent = `安装: ${installMethodMeta(method).label}`;
       if (els.editorMethodSelect) els.editorMethodSelect.value = method;
       if (refreshInstall) showTab('install');
       renderPackages();
@@ -1370,15 +1416,26 @@
         'echo "=========================================="',
         ''
       ];
+      lines.push('check_failed=0');
       CHECK_STEPS.forEach((item, i) => {
         lines.push('echo ""');
         lines.push(`echo "[${i + 1}/${CHECK_STEPS.length}] ${item.name}"`);
         lines.push(`echo ">>> ${item.cmd}"`);
-        lines.push(`${item.cmd} 2>&1 || echo "检查失败或未安装"`);
+        lines.push(`if ${item.cmd} 2>&1; then`);
+        lines.push(`  echo "[OK] ${item.name}"`);
+        lines.push('else');
+        lines.push(`  echo "[FAIL] ${item.name} — 检查失败或未安装（退出码 $?）"`);
+        lines.push('  check_failed=$((check_failed + 1))');
+        lines.push('fi');
         lines.push('');
       });
       lines.push('echo "=========================================="');
-      lines.push('echo "  环境检查完成，请将输出粘贴到「粘贴输出」面板"');
+      lines.push('if [ "$check_failed" -ne 0 ]; then');
+      lines.push('  echo "  环境检查完成，$check_failed 项未通过（安装前属正常，请核对上方 [FAIL] 项）"');
+      lines.push('else');
+      lines.push('  echo "  环境检查完成，全部检查项通过"');
+      lines.push('fi');
+      lines.push('echo "  请将上方完整输出粘贴到「粘贴输出」面板"');
       lines.push('echo "=========================================="');
       return lines.join('\n');
     }
@@ -1411,8 +1468,8 @@
       lines.push('# CANN 在线安装 (Yum) — 由安装助手自动生成');
       lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
       lines.push('');
-      lines.push('set -e');
-      
+      scriptFailFast(lines);
+
       scriptHeader(lines, 'yum');
 
       const allSteps = [
@@ -1430,18 +1487,20 @@
             ...depInstallCommands('centos')
           ]},
         { title: '安装 NPU 驱动', cmds: [
-            `yum install -y ascend-npu-driver-${chip} 2>/dev/null || yum install -y ascend-driver-${ver}`,
-            'npu-smi info 2>&1 || echo "驱动安装完成，请重启后验证"'
+            `yum install -y ascend-npu-driver-${chip} || { echo "⚠ ascend-npu-driver-${chip} 安装失败，回退到 ascend-driver-${ver}" >&2; yum install -y ascend-driver-${ver}; }`,
+            'npu-smi info || echo "⚠ npu-smi 暂不可用，驱动可能需重启后生效" >&2'
           ]},
         { title: '安装 Toolkit', cmds: [
             `yum install -y ascend-toolkit-${ver}`,
             'source /usr/local/Ascend/ascend-toolkit/set_env.sh'
           ]},
         { title: '安装后验证', cmds: [
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'atc --version 2>&1 || echo "atc 检查"',
-            `cat /usr/local/Ascend/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || true`,
-            'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 验证"',
+            ...verifyCommands([
+              { label: 'NPU 驱动 (npu-smi info)', cmd: 'npu-smi info' },
+              { label: 'ATC 编译器 (atc --version)', cmd: 'atc --version' },
+              { label: 'Toolkit 安装信息', cmd: `cat /usr/local/Ascend/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info` },
+              { label: 'Python ACL 模块', cmd: 'python3 -c "import acl; print(acl)"' }
+            ]),
             'echo "✅ CANN Yum 在线安装完成！"'
           ]}
       ];
@@ -1488,8 +1547,8 @@
       lines.push('# CANN 在线安装 (Conda) — 由安装助手自动生成');
       lines.push(`# CANN: ${ver} | Python: ${py} | 环境: ${condaEnv}`);
       lines.push('');
-      lines.push('set -e');
-      
+      scriptFailFast(lines);
+
       scriptHeader(lines, 'conda');
 
       const allSteps = [
@@ -1503,13 +1562,20 @@
             `conda config --add channels ${condaChannel}`,
             `conda install -y -n ${condaEnv} cann-toolkit=${ver}`,
             `conda activate ${condaEnv}`,
-            'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true'
+            'if [ -f "${CONDA_PREFIX}/ascend-toolkit/set_env.sh" ]; then',
+            '  source "${CONDA_PREFIX}/ascend-toolkit/set_env.sh"',
+            'else',
+            '  echo "❌ 未找到 ${CONDA_PREFIX}/ascend-toolkit/set_env.sh，Toolkit 可能未正确安装" >&2',
+            '  exit 1',
+            'fi'
           ]},
         { title: '安装后验证', cmds: [
             `conda activate ${condaEnv}`,
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'python -c "import acl; print(acl.__file__)" 2>&1 || echo "ACL 模块验证"',
-            'atc --version 2>&1 || echo "atc 检查"',
+            ...verifyCommands([
+              { label: 'NPU 驱动 (npu-smi info)', cmd: 'npu-smi info' },
+              { label: 'Python ACL 模块', cmd: 'python -c "import acl; print(acl.__file__)"' },
+              { label: 'ATC 编译器 (atc --version)', cmd: 'atc --version' }
+            ]),
             'echo "✅ CANN Conda 在线安装完成！"',
             `echo "使用: conda activate ${condaEnv}"`
           ]}
@@ -1560,7 +1626,7 @@
       lines.push(`# 系统: ${cfg.os} | 架构: ${arch} | CANN: ${ver} | 芯片: ${chip}`);
       lines.push(`# 安装路径: ${path}`);
       lines.push('');
-      lines.push('set -e');
+      scriptFailFast(lines);
       lines.push('cd "$(dirname "$0")"');
       
       scriptHeader(lines, 'runfile');
@@ -1576,7 +1642,7 @@
           cannStepCmds.push(`./Ascend-hdk-${chip}-npu-firmware_*.run --full`);
           cannStepCmds.push(`./Ascend-hdk-${chip}-npu-driver_*.run --full --install-for-all`);
         }
-        cannStepCmds.push('npu-smi info 2>&1 || true');
+        cannStepCmds.push('npu-smi info || echo "⚠ npu-smi 暂不可用，驱动可能需重启后生效" >&2');
       }
       if (cfg.installToolkit) {
         cannStepCmds.push(`chmod +x Ascend-cann-toolkit_${ver}_linux-${arch}.run`);
@@ -1601,9 +1667,11 @@
         { title: '安装依赖', cmds: depInstallCommands(cfg.os) },
         { title: '安装驱动 & Toolkit', cmds: cannStepCmds },
         { title: '安装后验证', cmds: [
-            'npu-smi info 2>&1 || echo "NPU 驱动检查"',
-            'atc --version 2>&1 || echo "atc 检查"',
-            `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "安装信息"`,
+            ...verifyCommands([
+              { label: 'NPU 驱动 (npu-smi info)', cmd: 'npu-smi info' },
+              { label: 'ATC 编译器 (atc --version)', cmd: 'atc --version' },
+              { label: 'Toolkit 安装信息', cmd: `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info` }
+            ]),
             'echo "✅ CANN Runfile 离线安装完成！"'
           ]}
       ];
@@ -1625,6 +1693,7 @@
 
     function generateInstallScript(cfg, stepLimit = null) {
       cfg = cfg || getConfig();
+      installMethodMeta(cfg.installMethod);
       if (cfg.installMethod === 'yum') return generateInstallScriptYum(cfg, state.showInstallSteps, stepLimit);
       if (cfg.installMethod === 'conda') return generateInstallScriptConda(cfg, state.showInstallSteps, stepLimit);
       return generateInstallScriptRunfile(cfg, state.showInstallSteps, stepLimit);
@@ -1633,10 +1702,14 @@
     function generateEnvScript(cfg) {
       if (cfg.installMethod === 'conda') {
         return [
-          '#!/bin/bash', '# CANN Conda 环境变量配置',
+          '#!/bin/bash', '# CANN Conda 环境变量配置（建议以 source 方式执行）',
           '',
           `conda activate ${cfg.condaEnv}`,
-          'source ${CONDA_PREFIX}/ascend-toolkit/set_env.sh 2>/dev/null || true',
+          'if [ -f "${CONDA_PREFIX}/ascend-toolkit/set_env.sh" ]; then',
+          '  source "${CONDA_PREFIX}/ascend-toolkit/set_env.sh"',
+          'else',
+          '  echo "❌ 未找到 ${CONDA_PREFIX}/ascend-toolkit/set_env.sh，环境变量未配置" >&2',
+          'fi',
           '',
           `# 永久生效: conda activate ${cfg.condaEnv}`,
           `# echo 'conda activate ${cfg.condaEnv}' >> ~/.bashrc`
@@ -1663,18 +1736,27 @@
     function generateVerifyScript(cfg) {
       const path = cfg.installPath;
       const arch = cfg.arch;
-      return [
-        '#!/bin/bash', '# CANN 安装验证',
-        `source ${path}/ascend-toolkit/set_env.sh 2>/dev/null || true`,
+      const lines = [
+        '#!/bin/bash', '# CANN 安装验证（任一项失败则以非零退出码结束）',
+        'set -Eeo pipefail',
         '',
-        'echo "=== NPU 驱动 ==="', 'npu-smi info 2>&1 || echo "驱动未就绪"',
-        'echo ""', 'echo "=== Toolkit 版本 ==="',
-        `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info 2>/dev/null || echo "信息文件不存在"`,
-        'echo ""', 'echo "=== 开发工具 ==="', 'atc --version 2>&1 || echo "atc 不可用"',
-        'echo ""', 'echo "=== 环境变量 ==="', 'env | grep -i ASCEND || echo "未检测到"',
-        'echo ""', 'echo "=== Python ACL ==="',
-        'python3 -c "import acl; print(acl)" 2>&1 || echo "ACL 不可用"'
-      ].join('\n');
+        `if [ -f ${path}/ascend-toolkit/set_env.sh ]; then`,
+        `  source ${path}/ascend-toolkit/set_env.sh`,
+        'else',
+        `  echo "❌ 未找到 ${path}/ascend-toolkit/set_env.sh，CANN 可能未安装到该路径" >&2`,
+        '  exit 1',
+        'fi',
+        ''
+      ];
+      lines.push(...verifyCommands([
+        { label: 'NPU 驱动 (npu-smi info)', cmd: 'npu-smi info' },
+        { label: 'Toolkit 版本信息', cmd: `cat ${path}/ascend-toolkit/latest/${arch}-linux/ascend_toolkit_install.info` },
+        { label: 'ATC 编译器 (atc --version)', cmd: 'atc --version' },
+        { label: 'ASCEND 环境变量', cmd: 'env | grep -i ASCEND' },
+        { label: 'Python ACL 模块', cmd: 'python3 -c "import acl; print(acl)"' }
+      ]));
+      lines.push('echo "✅ 全部验证项通过"');
+      return lines.join('\n');
     }
 
     function generatePackageList(cfg) {
@@ -1816,10 +1898,10 @@
       flashEditor();
       renderPackages();
 
-      const methodLabel = INSTALL_METHODS[cfg.installMethod].label;
+      const meta = installMethodMeta(cfg.installMethod);
       els.checkSummary.textContent = `已更新: ${updated.join('、')}`;
       els.fileLabel.textContent = getInstallTabLabel();
-      showToast(`已生成 ${methodLabel} 脚本，共 ${INSTALL_METHODS[cfg.installMethod].steps.length} 个步骤`);
+      showToast(`已生成 ${meta.label} 脚本，共 ${meta.steps.length} 个步骤`);
     }
 
     function updateLineNumbers() {
@@ -1829,11 +1911,13 @@
     }
 
     function showTab(tab) {
+      const build = scripts[tab];
+      if (!build) throw new Error(`未知文件标签: ${tab}`);
       state.activeTab = tab;
       document.querySelectorAll('.editor-tab, .tree-item').forEach(el => {
         el.classList.toggle('active', el.dataset.tab === tab);
       });
-      setCodeContent(scripts[tab]());
+      setCodeContent(build());
       if (tab === 'install') {
         els.fileLabel.textContent = getInstallTabLabel();
       } else {
@@ -1854,12 +1938,36 @@
       setTimeout(() => els.toast.classList.remove('show'), 2500);
     }
 
+    function legacyCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        if (!document.execCommand('copy')) throw new Error('document.execCommand("copy") 被浏览器拒绝');
+      } finally {
+        ta.remove();
+      }
+    }
+
     function copyText(text) {
-      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板')).catch(() => {
-        els.codeEditor.select();
-        document.execCommand('copy');
-        showToast('已复制到剪贴板');
-      });
+      const useFallback = err => {
+        try {
+          legacyCopy(text);
+          showToast('已复制到剪贴板');
+        } catch (fallbackErr) {
+          console.error('[cann-installer] 剪贴板写入失败:', err, fallbackErr);
+          showToast(`复制失败（${fallbackErr.message}），请手动选中代码后按 Ctrl+C`);
+        }
+      };
+      if (!navigator.clipboard) {
+        useFallback(new Error('当前浏览器不支持 navigator.clipboard'));
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板')).catch(useFallback);
     }
 
     function appendTerminal(text, cls) {
@@ -1872,6 +1980,16 @@
 
     async function simulateCheckRun() {
       if (state.isRunning) return;
+      try {
+        await runCheck();
+      } catch (err) {
+        setProgress(100, '环境检查已中断');
+        setRunning(false, els.runCheckBtn);
+        reportError('环境检查', err);
+      }
+    }
+
+    async function runCheck() {
       els.sidebar.classList.add('collapsed');
       els.toggleConfigBtn.textContent = '⚙ 配置';
       showPanel('terminal');
@@ -1941,7 +2059,7 @@
     }
 
     function getInstallPhases(cfg) {
-      const steps = INSTALL_METHODS[cfg.installMethod].steps;
+      const steps = installMethodMeta(cfg.installMethod).steps;
       const chip = chipLabel(cfg.chipType);
       const { arch, cannVersion: ver } = cfg;
 
@@ -1992,17 +2110,37 @@
       els.stepCardContainer.style.display = 'block';
     }
 
+    function setStepButtonsDisabled(disabled) {
+      [els.stepExecuteBtn, els.stepModifyBtn, els.stepSkipBtn].forEach(btn => {
+        if (btn) btn.disabled = disabled;
+      });
+    }
+
     async function executeStep() {
       if (installState.isExecuting) return;
-      installState.isExecuting = true;
 
       const phase = installState.phases[installState.currentStep];
-      const cfg = installState.cfg;
-      const stepIndex = installState.currentStep;
+      if (!phase) { showToast('没有待执行的步骤'); return; }
 
-      els.stepExecuteBtn.disabled = true;
-      els.stepModifyBtn.disabled = true;
-      els.stepSkipBtn.disabled = true;
+      installState.isExecuting = true;
+      const stepIndex = installState.currentStep;
+      setStepButtonsDisabled(true);
+
+      try {
+        await runStep(phase, stepIndex);
+      } catch (err) {
+        updateChip(phase.id, 'fail');
+        reportError(`步骤 ${stepIndex + 1}「${phase.label}」执行`, err);
+        installState.currentStep = stepIndex;
+        showStepCard(stepIndex);
+      } finally {
+        installState.isExecuting = false;
+        setStepButtonsDisabled(false);
+      }
+    }
+
+    async function runStep(phase, stepIndex) {
+      const cfg = installState.cfg;
 
       showPanel('terminal');
 
@@ -2027,14 +2165,10 @@
       setProgress(((stepIndex + 1) / installState.phases.length) * 100, `${phase.label} 完成`);
       await sleep(250);
 
-      installState.isExecuting = false;
-      installState.currentStep++;
-      
+      installState.currentStep = stepIndex + 1;
+
       if (installState.currentStep < installState.phases.length) {
         showStepCard(installState.currentStep);
-        els.stepExecuteBtn.disabled = false;
-        els.stepModifyBtn.disabled = false;
-        els.stepSkipBtn.disabled = false;
         showToast(`步骤 ${stepIndex + 1} 完成，进入步骤 ${installState.currentStep + 1}`);
       } else {
         els.stepCardContainer.style.display = 'none';
@@ -2046,18 +2180,20 @@
         }
         setProgress(100, 'CANN 安装完成');
         appendTermText('');
-        appendTermText(`🎉 ${INSTALL_METHODS[cfg.installMethod].label} 成功！（演示模式）`, 'term-success');
+        appendTermText(`🎉 ${installMethodMeta(cfg.installMethod).label} 成功！（演示模式）`, 'term-success');
         appendTermText('   下一步: 运行 verify_install.sh 验证安装', 'term-muted');
         addPromptLine();
-        els.checkSummary.textContent = `安装完成 — ${INSTALL_METHODS[cfg.installMethod].label}，共 ${installState.phases.length} 步`;
+        els.checkSummary.textContent = `安装完成 — ${installMethodMeta(cfg.installMethod).label}，共 ${installState.phases.length} 步`;
         showToast('CANN 安装流程执行完毕');
         setRunning(false, els.runInstallBtn);
       }
     }
 
     function skipStep() {
+      if (installState.isExecuting) return;
       const currentStep = installState.currentStep;
       const phase = installState.phases[currentStep];
+      if (!phase) { showToast('没有可跳过的步骤'); return; }
       appendTermText(`║ 跳过步骤 ${currentStep + 1}: ${phase.label}`, 'term-muted');
       updateChip(phase.id, 'done');
       installState.currentStep++;
@@ -2068,8 +2204,9 @@
         els.stepCardContainer.style.display = 'none';
         setProgress(100, '安装完成（部分步骤已跳过）');
         appendTermText('');
-        appendTermText(`📋 ${INSTALL_METHODS[installState.cfg.installMethod].label} 完成（部分步骤已跳过）`, 'term-success');
+        appendTermText(`📋 ${installMethodMeta(installState.cfg.installMethod).label} 完成（部分步骤已跳过）`, 'term-success');
         addPromptLine();
+        setRunning(false, els.runInstallBtn);
         showToast('安装流程已结束（部分步骤已跳过）');
       }
     }
@@ -2085,8 +2222,12 @@
 
     function naturalToCommand(input) {
       input = input.trim();
-      console.log('naturalToCommand input:', input);
-      
+      const rest = n => {
+        const value = input.substring(n).trim();
+        if (!value) throw new Error(`「${input}」缺少参数，请补充完整（例如「安装 gcc」）`);
+        return value;
+      };
+
       let pkgMgr = 'yum';
       if (installState && installState.cfg) {
         const os = installState.cfg.os || 'centos';
@@ -2094,11 +2235,11 @@
       }
       
       if (input.indexOf('安装') === 0) {
-        const pkg = input.substring(2).trim();
+        const pkg = rest(2);
         return `${pkgMgr} install -y ${pkg}`;
       }
       if (input.indexOf('卸载') === 0) {
-        const pkg = input.substring(2).trim();
+        const pkg = rest(2);
         return `${pkgMgr} remove -y ${pkg}`;
       }
       if (input === '更新系统') return `${pkgMgr} update -y`;
@@ -2133,59 +2274,59 @@
       if (input === '关闭防火墙') return 'systemctl stop firewalld && systemctl disable firewalld';
       
       if (input.indexOf('创建用户') === 0) {
-        const user = input.substring(4).trim();
+        const user = rest(4);
         return `useradd ${user}`;
       }
       if (input.indexOf('创建用户组') === 0) {
-        const group = input.substring(5).trim();
+        const group = rest(5);
         return `groupadd ${group}`;
       }
       if (input.indexOf('删除用户') === 0) {
-        const user = input.substring(4).trim();
+        const user = rest(4);
         return `userdel ${user}`;
       }
       if (input.indexOf('删除用户组') === 0) {
-        const group = input.substring(5).trim();
+        const group = rest(5);
         return `groupdel ${group}`;
       }
       if (input.indexOf('切换目录') === 0) {
-        const dir = input.substring(4).trim();
+        const dir = rest(4);
         return `cd ${dir}`;
       }
       if (input.indexOf('创建目录') === 0) {
-        const dir = input.substring(4).trim();
+        const dir = rest(4);
         return `mkdir -p ${dir}`;
       }
       if (input.indexOf('删除目录') === 0) {
-        const dir = input.substring(4).trim();
+        const dir = rest(4);
         return `rm -rf ${dir}`;
       }
       if (input.indexOf('查看文件') === 0) {
-        const file = input.substring(4).trim();
+        const file = rest(4);
         return `cat ${file}`;
       }
       if (input.indexOf('编辑文件') === 0) {
-        const file = input.substring(4).trim();
+        const file = rest(4);
         return `vim ${file}`;
       }
       if (input.indexOf('重启服务') === 0) {
-        const service = input.substring(4).trim();
+        const service = rest(4);
         return `systemctl restart ${service}`;
       }
       if (input.indexOf('启动服务') === 0) {
-        const service = input.substring(4).trim();
+        const service = rest(4);
         return `systemctl start ${service}`;
       }
       if (input.indexOf('停止服务') === 0) {
-        const service = input.substring(4).trim();
+        const service = rest(4);
         return `systemctl stop ${service}`;
       }
       if (input.indexOf('设置开机自启') === 0) {
-        const service = input.substring(5).trim();
+        const service = rest(5);
         return `systemctl enable ${service}`;
       }
       if (input.indexOf('检查服务状态') === 0) {
-        const service = input.substring(5).trim();
+        const service = rest(5);
         return `systemctl status ${service}`;
       }
       if (input.indexOf('查看日志') === 0) {
@@ -2193,89 +2334,106 @@
         return `tail -f ${file || '/var/log/messages'}`;
       }
       if (input.indexOf('安装python包') === 0) {
-        const pkg = input.substring(6).trim();
+        const pkg = rest(6);
         return `pip3 install ${pkg}`;
       }
       if (input.indexOf('创建conda环境') === 0) {
-        const name = input.substring(6).trim();
+        const name = rest(6);
         return `conda create -n ${name} python=3.8 -y`;
       }
       if (input.indexOf('激活conda环境') === 0) {
-        const name = input.substring(6).trim();
+        const name = rest(6);
         return `conda activate ${name}`;
       }
       if (input.indexOf('安装conda包') === 0) {
-        const pkg = input.substring(6).trim();
+        const pkg = rest(6);
         return `conda install -y ${pkg}`;
       }
       if (input.indexOf('删除conda环境') === 0) {
-        const name = input.substring(6).trim();
+        const name = rest(6);
         return `conda env remove -n ${name} -y`;
       }
       if (input.indexOf('下载文件') === 0) {
-        const url = input.substring(4).trim();
+        const url = rest(4);
         return `wget ${url}`;
       }
       if (input.indexOf('解压文件') === 0) {
-        const file = input.substring(4).trim();
+        const file = rest(4);
         return `tar -xzf ${file}`;
       }
       if (input.indexOf('压缩文件') === 0) {
-        const file = input.substring(4).trim();
+        const file = rest(4);
         return `tar -czf ${file}.tar.gz ${file}`;
       }
       if (input.indexOf('查找文件') === 0) {
-        const name = input.substring(4).trim();
+        const name = rest(4);
         return `find / -name "${name}" 2>/dev/null`;
       }
       if (input.indexOf('搜索内容') === 0) {
-        const content = input.substring(4).trim();
+        const content = rest(4);
         return `grep -r "${content}" .`;
       }
       if (input.indexOf('测试网络') === 0) {
-        const host = input.substring(4).trim();
+        const host = rest(4);
         return `ping -c 3 ${host}`;
       }
       if (input.indexOf('查看端口') === 0) {
-        const port = input.substring(4).trim();
+        const port = rest(4);
         return `netstat -tlnp | grep ${port}`;
       }
       if (input.indexOf('开放端口') === 0) {
-        const port = input.substring(4).trim();
+        const port = rest(4);
         return `firewall-cmd --add-port=${port}/tcp --permanent && firewall-cmd --reload`;
       }
       if (input.indexOf('修改权限') === 0) {
         const parts = input.substring(4).split('为');
-        if (parts.length === 2) {
-          return `chmod ${parts[1].trim()} ${parts[0].trim()}`;
-        }
+        if (parts.length !== 2) throw new Error('修改权限格式应为「修改权限 <路径> 为 <权限>」');
+        return `chmod ${parts[1].trim()} ${parts[0].trim()}`;
       }
       if (input.indexOf('修改所有者') === 0) {
         const parts = input.substring(5).split('为');
-        if (parts.length === 2) {
-          return `chown ${parts[1].trim()} ${parts[0].trim()}`;
-        }
+        if (parts.length !== 2) throw new Error('修改所有者格式应为「修改所有者 <路径> 为 <用户>」');
+        return `chown ${parts[1].trim()} ${parts[0].trim()}`;
       }
-      
-      console.log('naturalToCommand no match, return original');
+
       return input;
     }
 
     function applyModify() {
       const input = els.modifyInput.value.trim();
-      console.log('applyModify called, input:', input);
-      if (!input) return;
-      
-      const newCmd = naturalToCommand(input);
-      console.log('naturalToCommand result:', newCmd);
-      installState.phases[installState.currentStep].cmd = newCmd;
+      if (!input) { showToast('请输入要执行的操作或命令'); return; }
+
+      const phase = installState.phases[installState.currentStep];
+      if (!phase) { showToast('当前没有可修改的步骤'); return; }
+
+      let newCmd;
+      try {
+        newCmd = naturalToCommand(input);
+      } catch (err) {
+        reportError('命令解析', err);
+        return;
+      }
+
+      phase.cmd = newCmd;
       els.stepCommand.textContent = newCmd;
       els.stepModifyInput.style.display = 'none';
-      showToast(`命令已修改: ${input} → ${newCmd}`);
+      showToast(newCmd === input
+        ? `未识别的描述，已按原文作为命令使用: ${newCmd}`
+        : `命令已修改: ${input} → ${newCmd}`);
     }
 
     async function simulateInstallRun() {
       if (state.isRunning) return;
+      try {
+        await startInstall();
+      } catch (err) {
+        els.stepCardContainer.style.display = 'none';
+        setRunning(false, els.runInstallBtn);
+        reportError('安装流程启动', err);
+      }
+    }
+
+    async function startInstall() {
       showPanel('terminal');
       showTab('install');
 
@@ -2292,15 +2450,16 @@
 
       state.showInstallSteps = true;
 
+      const meta = installMethodMeta(cfg.installMethod);
       buildPipeline(phases.map(p => ({ id: p.id, label: p.label, state: '' })), 'install');
-      setProgress(0, `准备 ${INSTALL_METHODS[cfg.installMethod].label}...`);
+      setProgress(0, `准备 ${meta.label}...`);
 
       await sleep(400);
       await typeCommand(`bash ${installFile}`);
       await sleep(300);
-      appendTermText(`# ${INSTALL_METHODS[cfg.installMethod].label} — 由安装助手自动生成`, 'term-muted');
+      appendTermText(`# ${meta.label} — 由安装助手自动生成`, 'term-muted');
       appendTermText(`# CANN ${cfg.cannVersion} | ${cfg.arch}`, 'term-muted');
-      INSTALL_METHODS[cfg.installMethod].steps.forEach((s, i) => {
+      meta.steps.forEach((s, i) => {
         appendTermText(`#   ${i + 1}. ${s}`, 'term-muted');
       });
       appendTermText('');
@@ -2345,6 +2504,7 @@
     }
 
     function parseCheckOutput(text, silent) {
+      if (!text || !text.trim()) throw new Error('检查输出为空，请先运行 env_check.sh 并粘贴完整输出');
       const results = {};
       const lower = text.toLowerCase();
 
@@ -2380,11 +2540,15 @@
       state.checkResults = results;
       renderCheckItems(results);
       const pass = Object.values(results).filter(r => r.status === 'pass').length;
+      const unparsed = Object.values(results).filter(r => r.status === 'fail').length;
       els.checkSummary.textContent = `检查完成 ${pass}/${Object.keys(results).length} 项通过，配置已自动更新`;
+      if (unparsed) console.warn(`[cann-installer] 检查输出中有 ${unparsed} 项无法识别`, results);
       if (!silent) {
         showPanel('results');
         showTab('install');
-        showToast('检查结果已解析，安装命令已生成');
+        showToast(unparsed
+          ? `已解析，但 ${unparsed} 项无法识别，请确认粘贴的输出是否完整`
+          : '检查结果已解析，安装命令已生成');
       }
     }
 
@@ -2413,6 +2577,21 @@
     }
 
     // Events
+    window.addEventListener('error', e => reportError('运行时错误', e.error || e.message));
+    window.addEventListener('unhandledrejection', e => reportError('异步错误', e.reason));
+
+    const missingEls = Object.keys(els).filter(key => !els[key]);
+    if (missingEls.length) console.error(`[cann-installer] 页面缺少 DOM 元素: ${missingEls.join(', ')}`);
+
+    function bindClick(id, handler) {
+      const el = document.getElementById(id);
+      if (!el) {
+        console.error(`[cann-installer] 未找到按钮 #${id}，对应功能不可用`);
+        return;
+      }
+      el.addEventListener('click', handler);
+    }
+
     document.querySelectorAll('.editor-tab, .tree-item').forEach(tab => {
       tab.addEventListener('click', () => showTab(tab.dataset.tab));
     });
@@ -2440,18 +2619,22 @@
      'pythonVersion', 'condaEnv', 'condaChannel', 'yumRepoUrl'].forEach(id => bindConfigField(id, onConfigChange));
 
     if (els.userType) els.userType.addEventListener('change', updateDefaultPathHint);
-    document.getElementById('generateBtn').addEventListener('click', generateAllCommands);
-    document.getElementById('runInstallBtn').addEventListener('click', simulateInstallRun);
-    document.getElementById('runCheckInTerminal').addEventListener('click', simulateCheckRun);
-    document.getElementById('parseCheckOutput').addEventListener('click', () => {
+    bindClick('generateBtn', generateAllCommands);
+    bindClick('runInstallBtn', simulateInstallRun);
+    bindClick('runCheckInTerminal', simulateCheckRun);
+    bindClick('parseCheckOutput', () => {
       const text = els.pasteOutput.value.trim();
       if (!text) { showToast('请先粘贴或运行环境检查'); return; }
-      parseCheckOutput(text);
+      try {
+        parseCheckOutput(text);
+      } catch (err) {
+        reportError('检查输出解析', err);
+      }
     });
-    document.getElementById('copyBtn').addEventListener('click', () => copyText(Object.entries(scripts).map(([k, fn]) => `# === ${tabFiles[k]} ===\n${fn()}`).join('\n\n')));
-    document.getElementById('copyCurrentBtn').addEventListener('click', () => copyText(els.codeEditor.value));
-    document.getElementById('selectAllBtn').addEventListener('click', () => els.codeEditor.select());
-    document.getElementById('focusTerminal').addEventListener('click', () => showPanel('terminal'));
+    bindClick('copyBtn', () => copyText(Object.entries(scripts).map(([k, fn]) => `# === ${tabFiles[k]} ===\n${fn()}`).join('\n\n')));
+    bindClick('copyCurrentBtn', () => copyText(els.codeEditor.value));
+    bindClick('selectAllBtn', () => els.codeEditor.select());
+    bindClick('focusTerminal', () => showPanel('terminal'));
     
     function toggleSidebar() {
       els.sidebar.classList.toggle('collapsed');
@@ -2470,11 +2653,7 @@
     els.stepSkipBtn.addEventListener('click', skipStep);
     els.stepModifyBtn.addEventListener('click', toggleModify);
     els.modifyInput.addEventListener('keydown', (e) => {
-      console.log('modifyInput keydown event, key:', e.key);
-      if (e.key === 'Enter') {
-        console.log('Enter key pressed, calling applyModify');
-        applyModify();
-      }
+      if (e.key === 'Enter') applyModify();
     });
     
     els.codeEditor.addEventListener('input', () => { syncHighlight(); updateLineNumbers(); });
@@ -2485,11 +2664,15 @@
     });
 
     // Init
-    updateDefaultPathHint();
-    updateInstallMethodUI(false);
-    renderCheckItems({});
-    renderPackages();
-    showTab('check');
+    try {
+      updateDefaultPathHint();
+      updateInstallMethodUI(false);
+      renderCheckItems({});
+      renderPackages();
+      showTab('check');
+    } catch (err) {
+      reportError('页面初始化', err);
+    }
   </script>
 </body>
 </html>
