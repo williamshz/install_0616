@@ -17,7 +17,8 @@ const html = readFileSync(SOURCE_PATH, 'utf8');
 const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/);
 if (!scriptMatch) throw new Error('inline <script> block not found in index.html');
 
-const inlineScript = scriptMatch[1];
+/** The inline script extracted from index.html, as measured by the coverage report. */
+export const inlineScript = scriptMatch[1];
 const htmlWithoutScript = html.replace(scriptMatch[0], '</body>');
 
 const instrumenter = createInstrumenter({ esModules: false, produceSourceMap: false });
