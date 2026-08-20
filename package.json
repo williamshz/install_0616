@@ -1,0 +1,22 @@
+{
+  "name": "install_0616",
+  "version": "1.0.0",
+  "description": "CANN安装",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run && node tests/report-coverage.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-instrument": "^6.0.3",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.1.7",
+    "jsdom": "^25.0.1",
+    "vitest": "^4.1.10"
+  }
+}
